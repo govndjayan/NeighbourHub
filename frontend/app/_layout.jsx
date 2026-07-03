@@ -1,0 +1,70 @@
+import { Stack, useRouter, useSegments } from 'expo-router';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useRef } from 'react';
+import * as Notifications from 'expo-notifications';
+import { AuthProvider, useAuth } from '../context/AuthContext';
+
+function RootLayoutNav() {
+  const { user, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+  const notificationListener = useRef();
+  const responseListener = useRef();
+
+  useEffect(() => {
+    if (loading) return;
+    const inAuthGroup = segments[0] === '(auth)';
+    if (!user && !inAuthGroup) {
+      router.replace('/(auth)/login');
+    } else if (user && inAuthGroup) {
+  router.replace('/');
+} else if (user && segments.length === 0) {
+  router.replace('/');
+}
+  }, [user, loading]);
+
+  useEffect(() => {
+    // Listen for notifications while app is open
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received:', notification);
+    });
+
+    // Handle notification tap
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      console.log('Notification tapped:', data);
+
+      if (data.screen === 'chat' && data.userId) {
+        router.push({
+          pathname: '/chat/[id]',
+          params: { id: data.userId },
+        });
+      } else if (data.screen === 'complaints') {
+        router.push('/(tabs)/complaints');
+      } else if (data.screen === 'food') {
+        router.push('/(tabs)/food');
+      } else if (data.screen === 'home') {
+        router.push('/(tabs)/');
+      }
+    });
+
+    return () => {
+notificationListener.current?.remove();
+responseListener.current?.remove();
+    };
+  }, []);
+
+  return <Stack screenOptions={{ headerShown: false }} />;
+}
+
+export default function RootLayout() {
+  return (
+    <SafeAreaProvider>
+      <StatusBar style="light" />
+      <AuthProvider>
+        <RootLayoutNav />
+      </AuthProvider>
+    </SafeAreaProvider>
+  );
+}

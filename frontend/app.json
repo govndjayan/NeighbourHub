@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "NeighbourHub",
+    "slug": "NeighbourHub",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme" : "neighbourhub",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "android": {
+      "googleServicesFile": "./google-services.json",
+      "useNextNotificationsApi": true
+    },
+    "ios": {
+      "bundleIdentifier": "com.neighbourhub.app"
+    },
+      "edgeToEdgeEnabled": true,
+    
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "NeighbourHub needs access to your photos to share food images.",
+          "cameraPermission": "NeighbourHub needs access to your camera to take food photos."
+        }
+      ],
+       [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#6c63ff",
+          "sounds": []
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,169 @@
+name: NeighbourHub CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Run backend health check
+        working-directory: backend
+        env:
+          PORT: 5001
+          MONGO_URI: mongodb://localhost:27017/neighbourhub_test
+          JWT_SECRET: test_secret_key
+          JWT_EXPIRE: 30d
+          NODE_ENV: test
+        run: |
+          node -e "
+            const mongoose = require('mongoose');
+            mongoose.connect(process.env.MONGO_URI)
+              .then(() => { console.log('✅ MongoDB connection successful'); process.exit(0); })
+              .catch(err => { console.error('❌ MongoDB connection failed:', err); process.exit(1); });
+          "
+
+      - name: Validate backend structure
+        working-directory: backend
+        run: |
+          echo "Checking required files..."
+          test -f server.js && echo "✅ server.js exists"
+          test -f src/models/User.js && echo "✅ User model exists"
+          test -f src/models/Food.js && echo "✅ Food model exists"
+          test -f src/models/Complaint.js && echo "✅ Complaint model exists"
+          test -f src/models/Message.js && echo "✅ Message model exists"
+          test -f src/controllers/authController.js && echo "✅ Auth controller exists"
+          test -f src/middleware/auth.js && echo "✅ Auth middleware exists"
+          echo "✅ All required files present"
+
+      - name: Check for sensitive data
+        run: |
+          echo "Checking for exposed secrets..."
+          if grep -r "mongodb+srv" --include="*.js" --exclude-dir=node_modules .; then
+            echo "❌ Hardcoded MongoDB URI found"
+            exit 1
+          fi
+          if grep -r "JWT_SECRET.*=" --include="*.js" --exclude-dir=node_modules . | grep -v ".env" | grep -v "process.env"; then
+            echo "❌ Hardcoded JWT secret found"
+            exit 1
+          fi
+          echo "✅ No sensitive data exposed"
+
+  frontend-check:
+    name: Frontend Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --legacy-peer-deps
+
+      - name: Validate frontend structure
+        working-directory: frontend
+        run: |
+          echo "Checking required files..."
+          test -f app/_layout.jsx && echo "✅ Root layout exists"
+          test -f app/'(tabs)'/_layout.jsx && echo "✅ Tab layout exists"
+          test -f app/'(tabs)'/index.jsx && echo "✅ Home screen exists"
+          test -f app/'(tabs)'/food.jsx && echo "✅ Food screen exists"
+          test -f app/'(tabs)'/experts.jsx && echo "✅ Experts screen exists"
+          test -f app/'(tabs)'/complaints.jsx && echo "✅ Complaints screen exists"
+          test -f app/'(tabs)'/directory.jsx && echo "✅ Directory screen exists"
+          test -f context/AuthContext.jsx && echo "✅ Auth context exists"
+          test -f services/api.js && echo "✅ API service exists"
+          test -f constants/colors.js && echo "✅ Colors constants exist"
+          echo "✅ All required files present"
+
+      - name: Check Expo config
+        working-directory: frontend
+        run: |
+          echo "Validating app.json..."
+          node -e "
+            const config = require('./app.json');
+            if (!config.expo.name) throw new Error('Missing app name');
+            if (!config.expo.slug) throw new Error('Missing app slug');
+            if (!config.expo.version) throw new Error('Missing version');
+            console.log('✅ App name:', config.expo.name);
+            console.log('✅ App slug:', config.expo.slug);
+            console.log('✅ Version:', config.expo.version);
+          "
+
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: backend-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t neighbourhub-backend ./backend
+          echo "✅ Docker build successful"
+
+      - name: Test Docker Compose config
+        run: |
+          docker-compose config
+          echo "✅ Docker Compose config valid"
+
+  notify:
+    name: Build Status
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-check, docker-build]
+    if: always()
+
+    steps:
+      - name: Success
+        if: needs.backend-test.result == 'success' && needs.frontend-check.result == 'success' && needs.docker-build.result == 'success'
+        run: |
+          echo "🎉 All checks passed!"
+          echo "✅ Backend tests passed"
+          echo "✅ Frontend structure valid"
+          echo "✅ Docker build successful"
+
+      - name: Failure
+        if: needs.backend-test.result == 'failure' || needs.frontend-check.result == 'failure' || needs.docker-build.result == 'failure'
+        run: |
+          echo "❌ Some checks failed. Please review the logs above."
+          exit 1

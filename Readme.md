@@ -51,7 +51,7 @@ NeighbourHub/
 
 ### Backend `.env`
 \`\`\`
-PORT=5001
+PORT=5000
 MONGO_URI=mongodb://localhost:27017/neighbourhub
 JWT_SECRET=your_secret
 JWT_EXPIRE=30d
@@ -60,8 +60,8 @@ JWT_EXPIRE=30d
 ### Frontend `constants/config.js`
 \`\`\`
 BASE_URL=http://YOUR_IP:5000
-CLOUDINARY_URL=https://api.cloudinary.com/v1_1/YOUR_CLOUD/image/upload
-CLOUDINARY_PRESET=your_preset
+CLOUDINARY_URL=https://api.cloudinary.com/v1_1/dnbmu2w8c/image/upload
+CLOUDINARY_PRESET=preset
 \`\`\`
 
 ## Running with Docker

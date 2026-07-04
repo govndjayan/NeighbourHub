@@ -1,10 +1,10 @@
 import axios from 'axios';
 import { CLOUDINARY_URL, CLOUDINARY_PRESET } from '../constants/config';
 
-const BASE_URL = 'http://192.168.1.43:5000/api'; // We'll update this in a second
+import { API_URL } from '../constants/config';
 
 const api = axios.create({
-  baseURL: BASE_URL,
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -59,6 +59,8 @@ export const getConversations = () => api.get('/chat/conversations');
 //Push Token
 export const savePushToken = (token) => api.put('/users/push-token', { pushToken: token });
 
+export const BASE_URL = 'https://neighbourhub-backend-49fh.onrender.com';
+export const API_URL = `${BASE_URL}/api`;
 
 export const uploadImage = async (uri) => {
   console.log('UPLOADING IMAGE URI:', uri);

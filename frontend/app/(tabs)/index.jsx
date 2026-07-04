@@ -213,7 +213,7 @@ const statsCards = [
   { 
     label: 'Professionals', 
     value: stats.professionals.toString(), 
-    sub: 'available now', 
+    sub: 'in community', 
     color: '#a78bfa', 
     accent: ['#533483', '#a78bfa'], 
     route: '/(tabs)/experts' 

@@ -14,43 +14,43 @@ function RootLayoutNav() {
   const responseListener = useRef();
 
   const checkForUpdates = async () => {
-  try {
-    const update = await Updates.checkForUpdateAsync();
-    if (update.isAvailable) {
-      await Updates.fetchUpdateAsync();
-      await Updates.reloadAsync();
+    try {
+      const update = await Updates.checkForUpdateAsync();
+      if (update.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        await Updates.reloadAsync();
+      }
+    } catch (error) {
+      console.log('Error checking for updates:', error);
     }
-  } catch (error) {
-    console.log('Error checking for updates:', error);
-  }
-};
+  };
+
+  // Auth redirect
   useEffect(() => {
     if (loading) return;
     const inAuthGroup = segments[0] === '(auth)';
     if (!user && !inAuthGroup) {
       router.replace('/(auth)/login');
     } else if (user && inAuthGroup) {
-  router.replace('/');
-} else if (user && segments.length === 0) {
-  router.replace('/');
-}
-
+      router.replace('/');
+    } else if (user && segments.length === 0) {
+      router.replace('/');
+    }
   }, [user, loading]);
 
+  // OTA updates
   useEffect(() => {
-    // Listen for notifications while app is open
+    if (!__DEV__) {
+      checkForUpdates();
+    }
+  }, []);
+
+  // Notifications
+  useEffect(() => {
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification received:', notification);
     });
 
-    //OTA update
-  useEffect(() => {
-  if (!__DEV__) {
-    checkForUpdates();
-  }
-}, []);
-
-    // Handle notification tap
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       console.log('Notification tapped:', data);
@@ -70,8 +70,8 @@ function RootLayoutNav() {
     });
 
     return () => {
-notificationListener.current?.remove();
-responseListener.current?.remove();
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
     };
   }, []);
 

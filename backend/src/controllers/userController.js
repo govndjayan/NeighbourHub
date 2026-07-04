@@ -111,7 +111,7 @@ exports.getStats = async (req, res) => {
     // Available professionals
     const professionalsCount = await User.countDocuments({
       isServiceProvider: true,
-      availability: 'online',
+     
       isActive: true,
     });
 

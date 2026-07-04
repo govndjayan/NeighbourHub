@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme" : "neighbourhub",
+    "scheme": "neighbourhub",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -15,13 +15,16 @@
     },
     "android": {
       "googleServicesFile": "./google-services.json",
-      "useNextNotificationsApi": true
+      "useNextNotificationsApi": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.neighbourhub.app"
     },
     "ios": {
       "bundleIdentifier": "com.neighbourhub.app"
     },
-      "edgeToEdgeEnabled": true,
-    
+    "edgeToEdgeEnabled": true,
     "web": {
       "favicon": "./assets/favicon.png"
     },
@@ -34,7 +37,7 @@
           "cameraPermission": "NeighbourHub needs access to your camera to take food photos."
         }
       ],
-       [
+      [
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",
@@ -42,6 +45,12 @@
           "sounds": []
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f2f5ec11-6c0c-45f9-9a82-8da683d11ded"
+      }
+    }
   }
 }

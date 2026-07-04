@@ -4,22 +4,21 @@
     "slug": "NeighbourHub",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/icon.jpg",
     "userInterfaceStyle": "light",
     "scheme": "neighbourhub",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-
     "ios": {
       "bundleIdentifier": "com.neighbourhub.app"
     },
     "edgeToEdgeEnabled": true,
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -34,7 +33,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/icon.png",
+          "icon": "./assets/images/icon.jpg",
           "color": "#6c63ff",
           "sounds": []
         }
@@ -54,7 +53,9 @@
     },
     "runtimeVersion": {
       "policy": "appVersion"
+    },
+    "android": {
+      "package": "com.neighbourhub.app"
     }
-
   }
 }

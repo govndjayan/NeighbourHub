@@ -1,7 +1,5 @@
 import axios from 'axios';
-import { CLOUDINARY_URL, CLOUDINARY_PRESET } from '../constants/config';
-
-import { API_URL } from '../constants/config';
+import { API_URL, CLOUDINARY_URL, CLOUDINARY_PRESET, BASE_URL } from '../constants/config';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -56,14 +54,12 @@ export const getStats = () => api.get('/users/stats');
 export const getMessages = (userId) => api.get(`/chat/${userId}`);
 export const sendMessage = (userId, data) => api.post(`/chat/${userId}`, data);
 export const getConversations = () => api.get('/chat/conversations');
-//Push Token
+
+// Push Token
 export const savePushToken = (token) => api.put('/users/push-token', { pushToken: token });
 
-export const BASE_URL = 'https://neighbourhub-backend-49fh.onrender.com';
-export const API_URL = `${BASE_URL}/api`;
-
+// Image Upload
 export const uploadImage = async (uri) => {
-  console.log('UPLOADING IMAGE URI:', uri);
   const formData = new FormData();
   formData.append('file', {
     uri,
@@ -71,17 +67,14 @@ export const uploadImage = async (uri) => {
     name: 'food_photo.jpg',
   });
   formData.append('upload_preset', CLOUDINARY_PRESET);
-    console.log('CLOUDINARY URL:', CLOUDINARY_URL);
-  console.log('PRESET:', CLOUDINARY_PRESET);
 
   const res = await fetch(CLOUDINARY_URL, {
     method: 'POST',
     body: formData,
   });
   const data = await res.json();
-  console.log('CLOUDINARY RESPONSE:', JSON.stringify(data));
-  console.log('SECURE URL:', data.secure_url);
   return data.secure_url;
 };
 
-export default api; 
+export { BASE_URL };
+export default api;

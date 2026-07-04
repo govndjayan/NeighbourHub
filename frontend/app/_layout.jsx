@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import * as Updates from 'expo-updates';
 
 function RootLayoutNav() {
   const { user, loading } = useAuth();
@@ -12,6 +13,17 @@ function RootLayoutNav() {
   const notificationListener = useRef();
   const responseListener = useRef();
 
+  const checkForUpdates = async () => {
+  try {
+    const update = await Updates.checkForUpdateAsync();
+    if (update.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+    }
+  } catch (error) {
+    console.log('Error checking for updates:', error);
+  }
+};
   useEffect(() => {
     if (loading) return;
     const inAuthGroup = segments[0] === '(auth)';
@@ -22,6 +34,7 @@ function RootLayoutNav() {
 } else if (user && segments.length === 0) {
   router.replace('/');
 }
+
   }, [user, loading]);
 
   useEffect(() => {
@@ -29,6 +42,13 @@ function RootLayoutNav() {
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification received:', notification);
     });
+
+    //OTA update
+  useEffect(() => {
+  if (!__DEV__) {
+    checkForUpdates();
+  }
+}, []);
 
     // Handle notification tap
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {

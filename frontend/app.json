@@ -37,6 +37,7 @@
           "cameraPermission": "NeighbourHub needs access to your camera to take food photos."
         }
       ],
+      "expo-updates",
       [
         "expo-notifications",
         {
@@ -51,6 +52,16 @@
       "eas": {
         "projectId": "f2f5ec11-6c0c-45f9-9a82-8da683d11ded"
       }
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/f2f5ec11-6c0c-45f9-9a82-8da683d11ded"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
+
   }
 }

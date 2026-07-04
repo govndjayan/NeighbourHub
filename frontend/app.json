@@ -4,7 +4,7 @@
     "slug": "NeighbourHub",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.jpg",
+    "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "neighbourhub",
     "newArchEnabled": true,
@@ -33,11 +33,12 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/icon.jpg",
+          "icon": "./assets/images/icon.png",
           "color": "#6c63ff",
           "sounds": []
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "router": {},

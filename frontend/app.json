@@ -13,14 +13,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "android": {
-      "googleServicesFile": "./google-services.json",
-      "useNextNotificationsApi": true,
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ],
-      "package": "com.neighbourhub.app"
-    },
+
     "ios": {
       "bundleIdentifier": "com.neighbourhub.app"
     },

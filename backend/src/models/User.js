@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
   isServiceProvider: { type: Boolean, default: false },
   serviceCategory: {
     type: String,
-    enum: ['Medical', 'Legal', 'House Help', 'Plumber', 'Electrician', 'Other', ''],
+    enum: ['Medical', 'Legal', 'Finance', 'Home', 'Plumber', 'Electrician', 'Other', ''],
     default: '',
   },
   availability: {

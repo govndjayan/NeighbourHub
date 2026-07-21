@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import SwipeWrapper from '../../components/SwipeWrapper';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Alert, ActivityIndicator, RefreshControl, Animated, Dimensions
+  Alert, ActivityIndicator, RefreshControl, Animated, Dimensions, AppState
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { getAnnouncements, getStats } from '../../services/api';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { getAnnouncements, getStats, getMyCommitments, fulfillCommitment } from '../../services/api';
 import { createAnnouncement } from '../../services/api';
 import { Modal, TextInput } from 'react-native';
 
@@ -58,6 +58,7 @@ const [editingAnnouncement, setEditingAnnouncement] = useState(null);
   const orb1 = useRef(new Animated.Value(0)).current;
   const orb2 = useRef(new Animated.Value(0)).current;
   const orb3 = useRef(new Animated.Value(0)).current;
+  const promptedCommitments = useRef(new Set());
 
 
 
@@ -75,6 +76,23 @@ const [editingAnnouncement, setEditingAnnouncement] = useState(null);
     floatOrb(orb2, 1500);
     floatOrb(orb3, 3000);
     fetchAnnouncements();
+  }, []);
+
+  // Refetch stats whenever the screen regains focus (e.g. switching back to the
+  // Home tab) so the cards never sit stale.
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+      checkCommitments();
+    }, [checkCommitments])
+  );
+
+  // Refetch when the app returns to the foreground (resume from recents).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') { fetchData(); checkCommitments(); }
+    });
+    return () => sub.remove();
   }, []);
 
   const orb1Y = orb1.interpolate({ inputRange: [0, 1], outputRange: [0, -20] });
@@ -106,9 +124,43 @@ const [editingAnnouncement, setEditingAnnouncement] = useState(null);
     setLoading(false);
   }
 };
+  // Remind the user of any help they promised (offer accepted, not yet fulfilled)
+  const checkCommitments = useCallback(async () => {
+    try {
+      const res = await getMyCommitments();
+      const commitments = res.data.commitments || [];
+      for (const c of commitments) {
+        if (promptedCommitments.current.has(c._id)) continue;
+        promptedCommitments.current.add(c._id);
+        const who = c.postedBy?.name || 'a neighbour';
+        const when = c.pickupTime ? `\nPickup: ${c.pickupTime}` : '';
+        Alert.alert(
+          "Don't forget your promise 🤝",
+          `You offered to help ${who} with "${c.title}".${when}`,
+          [
+            { text: 'Later', style: 'cancel' },
+            {
+              text: 'Mark as done',
+              onPress: async () => {
+                try {
+                  await fulfillCommitment(c._id);
+                } catch (e) {
+                  Alert.alert('Error', 'Could not update. Please try again.');
+                  promptedCommitments.current.delete(c._id);
+                }
+              },
+            },
+          ]
+        );
+      }
+    } catch (e) {
+      // silent — reminder is best-effort
+    }
+  }, []);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchAnnouncements();
+    await fetchData();
     setRefreshing(false);
   }, []);
 
@@ -454,14 +506,14 @@ const statsCards = [
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a1a' },
+  container: { flex: 1, backgroundColor: '#07231f' },
 
   // Background orbs
   bg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   orb: { position: 'absolute', borderRadius: 999 },
-  orb1: { width: 350, height: 350, backgroundColor: 'rgba(108,99,255,0.2)', top: -100, left: -80 },
-  orb2: { width: 280, height: 280, backgroundColor: 'rgba(240,147,251,0.12)', top: 200, right: -100 },
-  orb3: { width: 200, height: 200, backgroundColor: 'rgba(46,213,115,0.07)', bottom: 300, left: 40 },
+  orb1: { width: 350, height: 350, backgroundColor: 'rgba(52,211,153,0.22)', top: -100, left: -80 },
+  orb2: { width: 280, height: 280, backgroundColor: 'rgba(45,212,191,0.14)', top: 200, right: -100 },
+  orb3: { width: 200, height: 200, backgroundColor: 'rgba(163,230,53,0.08)', bottom: 300, left: 40 },
 
   // Header
   header: { padding: 20, paddingTop: 10 },
@@ -507,7 +559,7 @@ const styles = StyleSheet.create({
   postAnnBtn: { marginHorizontal: 16, marginBottom: 16, borderRadius: 14, overflow: 'hidden' },
 postAnnGrad: { padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
 postAnnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-modal: { flex: 1, backgroundColor: '#0f0f1e' },
+modal: { flex: 1, backgroundColor: '#0a2a25' },
 modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
 modalTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
 closeBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center', justifyContent: 'center' },

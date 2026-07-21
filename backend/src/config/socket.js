@@ -17,10 +17,13 @@ const initSocket = (server) => {
       console.log(`User joined room: ${roomId}`);
     });
 
-    // Send and receive messages
-    socket.on('send_message', (data) => {
-      io.to(data.roomId).emit('receive_message', data);
-    });
+    // NOTE: message delivery is handled by the REST controller
+    // (chatController.sendMessage -> req.io.to(roomId).emit('receive_message')),
+    // which is the single source of truth. We intentionally do NOT rebroadcast
+    // here — doing so delivered every message to the receiver twice.
+    // Kept as a no-op for backward compatibility with older app builds that
+    // still emit 'send_message'.
+    socket.on('send_message', () => {});
 
     // Typing indicator
     socket.on('typing', (data) => {

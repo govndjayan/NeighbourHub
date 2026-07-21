@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { getProfessionals, getConversations } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import SwipeWrapper from '../../components/SwipeWrapper';
@@ -66,6 +66,16 @@ socket.on('receive_message', async () => {
 
 return () => socket.disconnect();
   }, []);
+
+  // Refetch conversations whenever this screen regains focus (e.g. returning
+  // from a chat) so the unread counts reflect messages just read.
+  useFocusEffect(
+    useCallback(() => {
+      getConversations()
+        .then((res) => setConversations(res.data.conversations))
+        .catch(() => {});
+    }, [])
+  );
 
   const orb1Y = orb1.interpolate({ inputRange: [0, 1], outputRange: [0, -20] });
   const orb2Y = orb2.interpolate({ inputRange: [0, 1], outputRange: [0, -16] });
@@ -206,6 +216,7 @@ return () => socket.disconnect();
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              style={styles.chipsScroll}
               contentContainerStyle={styles.chipsRow}
             >
               {categories.map(cat => (
@@ -294,7 +305,8 @@ return () => socket.disconnect();
                               name: p.name,
                               designation: p.designation,
                               initials: p.initials,
-                              color: p.avatarColor
+                              color: p.avatarColor,
+                              phone: p.phone
                             }
                           })}
                         >
@@ -347,6 +359,7 @@ return () => socket.disconnect();
                       designation: conv.otherUser.designation || '',
                       initials: conv.otherUser.initials,
                       color: conv.otherUser.avatarColor,
+                      phone: conv.otherUser.phone || '',
                     }
                   })}
                   activeOpacity={0.8}
@@ -387,11 +400,11 @@ return () => socket.disconnect();
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a1a' },
+  container: { flex: 1, backgroundColor: '#07231f' },
   bg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   orb: { position: 'absolute', borderRadius: 999 },
-  orb1: { width: 300, height: 300, backgroundColor: 'rgba(83,52,131,0.25)', top: -60, left: -60 },
-  orb2: { width: 250, height: 250, backgroundColor: 'rgba(108,99,255,0.15)', top: 250, right: -80 },
+  orb1: { width: 300, height: 300, backgroundColor: 'rgba(52,211,153,0.22)', top: -60, left: -60 },
+  orb2: { width: 250, height: 250, backgroundColor: 'rgba(45,212,191,0.13)', top: 250, right: -80 },
   header: { padding: 16, paddingBottom: 8 },
   headerGrad: { borderRadius: 20, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
@@ -430,14 +443,15 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 13, color: '#fff' },
 
   // Compact chips
-  chipsRow: { paddingHorizontal: 16, gap: 6, paddingBottom: 8 },
+  chipsScroll: { flexGrow: 0, flexShrink: 0 },
+  chipsRow: { paddingHorizontal: 16, gap: 6, paddingBottom: 8, alignItems: 'center' },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 12, paddingVertical: 0.1,
+    paddingHorizontal: 12, paddingVertical: 7,
     borderRadius: 20, borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     backgroundColor: 'rgba(255,255,255,0.04)',
-    overflow: 'hidden',
+    overflow: 'hidden', alignSelf: 'center',
   },
   chipActive: { borderColor: 'transparent' },
   chipText: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.4)' },

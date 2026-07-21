@@ -22,6 +22,8 @@ api.interceptors.request.use(
 export const register = (data) => api.post('/auth/register', data);
 export const login = (data) => api.post('/auth/login', data);
 export const getMe = () => api.get('/auth/me');
+export const forgotPassword = (data) => api.post('/auth/forgot-password', data);
+export const resetPassword = (data) => api.post('/auth/reset-password', data);
 
 // Announcements
 export const getAnnouncements = () => api.get('/announcements');
@@ -36,7 +38,10 @@ export const claimFood = (id, data) => api.post(`/food/${id}/claim`, data);
 export const offerFood = (id, data) => api.post(`/food/${id}/offer`, data);
 export const getFoodOffers = (id) => api.get(`/food/${id}/offers`);
 export const acceptOffer = (id, offerId) => api.post(`/food/${id}/offer/accept`, { offerId });
+export const commentOnOffer = (id, offerId, text) => api.post(`/food/${id}/offer/${offerId}/comment`, { text });
 export const markFoodOutOfStock = (id) => api.put(`/food/${id}/outofstock`);
+export const getMyCommitments = () => api.get('/food/commitments/mine');
+export const fulfillCommitment = (id) => api.put(`/food/${id}/commitment/fulfill`);
 
 // Complaints
 export const getComplaints = () => api.get('/complaints');
@@ -54,6 +59,7 @@ export const getStats = () => api.get('/users/stats');
 export const getMessages = (userId) => api.get(`/chat/${userId}`);
 export const sendMessage = (userId, data) => api.post(`/chat/${userId}`, data);
 export const getConversations = () => api.get('/chat/conversations');
+export const markAsRead = (userId) => api.put(`/chat/${userId}/read`);
 
 // Push Token
 export const savePushToken = (token) => api.put('/users/push-token', { pushToken: token });

@@ -13,6 +13,8 @@ exports.getFoodPosts = async (req, res) => {
       .populate('postedBy', 'name houseNo initials avatarColor')
       .populate('claimedBy.user', 'name houseNo initials avatarColor')
       .populate('offers.user', 'name houseNo initials avatarColor')
+      .populate('offers.comments.user', 'name houseNo initials avatarColor')
+      .populate('selectedOffer', 'name houseNo initials avatarColor')
       .sort({ createdAt: -1 });
 
     res.json({ success: true, count: posts.length, posts });
@@ -88,6 +90,11 @@ exports.offerFood = async (req, res) => {
     const post = await Food.findById(req.params.id);
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
+    // Once a helper is chosen, offers are closed
+    if (post.selectedOffer) {
+      return res.status(400).json({ message: 'A helper has already been chosen for this request' });
+    }
+
     // ✅ Check if user already offered
     const alreadyOffered = post.offers.some(
       offer => offer.user.toString() === req.user._id.toString()
@@ -96,9 +103,25 @@ exports.offerFood = async (req, res) => {
       return res.status(400).json({ message: 'You have already offered to help' });
     }
 
-    post.offers.push({ user: req.user._id, description, portions, pickupTime });
+    post.offers.push({
+      user: req.user._id,
+      description: (description || '').trim(), // optional comment / pitch
+      portions,
+      pickupTime,
+    });
     await post.save();
     await post.populate('offers.user', 'name houseNo initials avatarColor');
+
+    // Notify the request owner that someone offered to help
+    const owner = await User.findById(post.postedBy);
+    if (owner?.pushToken) {
+      await sendPushNotification(
+        owner.pushToken,
+        'Someone offered to help! 🙌',
+        `${req.user.name} offered to help with your request "${post.title}"`,
+        { screen: 'food', postId: post._id.toString() }
+      );
+    }
 
     req.io.emit('new_offer', post);
     res.json({ success: true, post });
@@ -111,9 +134,10 @@ exports.offerFood = async (req, res) => {
 exports.getFoodOffers = async (req, res) => {
   try {
     const post = await Food.findById(req.params.id)
-      .populate('offers.user', 'name houseNo block initials avatarColor');
+      .populate('offers.user', 'name houseNo block initials avatarColor')
+      .populate('offers.comments.user', 'name houseNo initials avatarColor');
     if (!post) return res.status(404).json({ message: 'Post not found' });
-    res.json({ success: true, offers: post.offers });
+    res.json({ success: true, offers: post.offers, selectedOffer: post.selectedOffer });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -130,13 +154,40 @@ exports.acceptOffer = async (req, res) => {
       return res.status(403).json({ message: 'Only the requester can accept offers' });
     }
 
-    // Mark selected offer
-    post.offers = post.offers.map(offer => ({
-      ...offer.toObject(),
-      isSelected: offer._id.toString() === offerId,
-    }));
-    post.status = 'fulfilled';
+    // Find the offer being accepted (before we rebuild the array)
+    const acceptedOffer = post.offers.find(o => o._id.toString() === offerId);
+    if (!acceptedOffer) {
+      return res.status(404).json({ message: 'Offer not found' });
+    }
+    const acceptedUserId = acceptedOffer.user?._id || acceptedOffer.user;
+
+    // Keep ONLY the accepted offer — the rest dissolve. The chosen offer's
+    // comment thread stays alive so the two users can coordinate.
+    post.offers = post.offers
+      .filter(offer => offer._id.toString() === offerId)
+      .map(offer => {
+        const o = offer.toObject();
+        o.isSelected = true;
+        return o;
+      });
+    post.selectedOffer = acceptedUserId;
+    // NOTE: keep status 'active' so the request stays reachable for both users
+    // to coordinate; it closes when the helper marks the commitment fulfilled.
     await post.save();
+    await post.populate('offers.user', 'name houseNo block initials avatarColor');
+    await post.populate('offers.comments.user', 'name houseNo initials avatarColor');
+    await post.populate('postedBy', 'name houseNo initials avatarColor');
+
+    // Notify the accepted helper so they don't forget their promise
+    const helper = await User.findById(acceptedUserId);
+    if (helper?.pushToken) {
+      await sendPushNotification(
+        helper.pushToken,
+        'Your offer was accepted! 🤝',
+        `${req.user.name} accepted your offer to help with "${post.title}". Please follow through!`,
+        { screen: 'food', postId: post._id.toString() }
+      );
+    }
 
     req.io.emit('offer_accepted', post);
     res.json({ success: true, post });
@@ -157,6 +208,126 @@ exports.markOutOfStock = async (req, res) => {
     await post.save();
     await post.populate('postedBy', 'name houseNo initials avatarColor');
     req.io.emit('food_updated', post);
+    res.json({ success: true, post });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+// @route GET /api/food/commitments/mine
+// Requests where MY offer was accepted (isSelected) but I haven't marked it done.
+// Used to remind the helper of their promise each time they open the app.
+exports.getMyCommitments = async (req, res) => {
+  try {
+    const posts = await Food.find({
+      type: 'request',
+      selectedOffer: req.user._id,
+      offers: { $elemMatch: { user: req.user._id, isSelected: true, fulfilled: { $ne: true } } },
+    })
+      .populate('postedBy', 'name houseNo block initials avatarColor phone')
+      .sort({ updatedAt: -1 });
+
+    const commitments = posts.map((post) => {
+      const myOffer = post.offers.find(
+        (o) => (o.user?._id || o.user).toString() === req.user._id.toString() && o.isSelected
+      );
+      return {
+        _id: post._id,
+        title: post.title,
+        description: post.description,
+        postedBy: post.postedBy,
+        pickupTime: myOffer?.pickupTime || '',
+        portions: myOffer?.portions,
+        offerId: myOffer?._id,
+        acceptedAt: post.updatedAt,
+      };
+    });
+
+    res.json({ success: true, commitments });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @route PUT /api/food/:id/commitment/fulfill
+// The helper marks their accepted offer as fulfilled (promise kept).
+exports.fulfillCommitment = async (req, res) => {
+  try {
+    const post = await Food.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: 'Post not found' });
+
+    const myOffer = post.offers.find(
+      (o) => (o.user?._id || o.user).toString() === req.user._id.toString() && o.isSelected
+    );
+    if (!myOffer) {
+      return res.status(403).json({ message: 'You have no accepted offer on this request' });
+    }
+    myOffer.fulfilled = true;
+    await post.save();
+
+    // Let the requester know the helper followed through
+    const owner = await User.findById(post.postedBy);
+    if (owner?.pushToken) {
+      await sendPushNotification(
+        owner.pushToken,
+        'Help delivered! ✅',
+        `${req.user.name} marked their help for "${post.title}" as done`,
+        { screen: 'food', postId: post._id.toString() }
+      );
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+// @route POST /api/food/:id/offer/:offerId/comment
+// Post a message to an offer's coordination thread. Only the request owner and
+// the offerer may participate.
+exports.commentOnOffer = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ message: 'Comment cannot be empty' });
+    }
+    const post = await Food.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: 'Post not found' });
+
+    const offer = post.offers.id(req.params.offerId);
+    if (!offer) return res.status(404).json({ message: 'Offer not found' });
+
+    const meId = req.user._id.toString();
+    const isOwner = post.postedBy.toString() === meId;
+    const isOfferer = (offer.user?._id || offer.user).toString() === meId;
+    if (!isOwner && !isOfferer) {
+      return res.status(403).json({ message: 'You cannot comment on this offer' });
+    }
+
+    offer.comments.push({ user: req.user._id, text: text.trim() });
+    // Nested subdocument arrays occasionally need an explicit nudge so
+    // Mongoose reliably persists the change.
+    post.markModified('offers');
+    await post.save();
+    await post.populate('offers.user', 'name houseNo block initials avatarColor');
+    await post.populate('offers.comments.user', 'name houseNo initials avatarColor');
+    await post.populate('postedBy', 'name houseNo initials avatarColor');
+
+    // Notify the OTHER party in the thread
+    const otherId = isOwner ? (offer.user?._id || offer.user) : post.postedBy;
+    const other = await User.findById(otherId);
+    if (other?.pushToken) {
+      await sendPushNotification(
+        other.pushToken,
+        `New message about "${post.title}"`,
+        `${req.user.name}: ${text.trim().slice(0, 80)}`,
+        { screen: 'food', postId: post._id.toString() }
+      );
+    }
+
+    req.io.emit('offer_comment', { postId: post._id, offerId: offer._id, post });
     res.json({ success: true, post });
   } catch (error) {
     res.status(500).json({ message: error.message });

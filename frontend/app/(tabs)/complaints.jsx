@@ -583,11 +583,11 @@ const openDetail = (complaint) => {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a1a' },
+  container: { flex: 1, backgroundColor: '#07231f' },
   bg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   orb: { position: 'absolute', borderRadius: 999 },
-  orb1: { width: 300, height: 300, backgroundColor: 'rgba(238,9,121,0.15)', top: -60, right: -60 },
-  orb2: { width: 250, height: 250, backgroundColor: 'rgba(255,106,0,0.1)', top: 300, left: -80 },
+  orb1: { width: 300, height: 300, backgroundColor: 'rgba(52,211,153,0.20)', top: -60, right: -60 },
+  orb2: { width: 250, height: 250, backgroundColor: 'rgba(45,212,191,0.12)', top: 300, left: -80 },
   header: { padding: 16, paddingBottom: 8 },
   headerGrad: { borderRadius: 20, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
@@ -635,7 +635,7 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 64, height: 64, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   emptyTitle: { fontSize: 15, color: 'rgba(255,255,255,0.4)', fontWeight: '600' },
   emptySubt: { fontSize: 12, color: 'rgba(255,255,255,0.2)' },
-  modal: { flex: 1, backgroundColor: '#0f0f1e' },
+  modal: { flex: 1, backgroundColor: '#0a2a25' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
   closeBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center', justifyContent: 'center' },

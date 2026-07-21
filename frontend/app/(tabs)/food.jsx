@@ -6,10 +6,11 @@ import { BASE_URL } from '../../constants/config';
 
 
 
-import { getFoodPosts, createFoodPost, claimFood, offerFood, uploadImage, getFoodOffers, acceptOffer, markFoodOutOfStock} from '../../services/api';
+import { getFoodPosts, createFoodPost, claimFood, offerFood, uploadImage, getFoodOffers, acceptOffer, markFoodOutOfStock, commentOnOffer } from '../../services/api';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Modal, TextInput, Alert, Animated, Dimensions, Image
+  ActivityIndicator, RefreshControl, Modal, TextInput, Alert, Animated, Dimensions, Image,
+  KeyboardAvoidingView, Platform, Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,7 +38,7 @@ const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'];
             borderColor: type === 'share' ? 'rgba(46,213,115,0.25)' : 'rgba(245,87,108,0.25)'
           }]}>
             <Text style={[styles.badgeText, { color: type === 'share' ? '#2ed573' : '#f5576c' }]}>
-              {type === 'share' ? item.category : 'Request'}
+              {type === 'share' ? (item.category || 'Food') : 'Request'}
             </Text>
           </View>
         </View>
@@ -61,44 +62,67 @@ const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'];
           <Text style={styles.cardDesc}>{item.description}</Text>
         ) : null}
 
-        {/* Count row */}
-        <View style={styles.countRow}>
-          <Ionicons name="time-outline" size={12} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.countText}>{getTimeAgo(item.createdAt)}</Text>
-          {type === 'share' ? (
-            <>
-              <Text style={styles.dot}>·</Text>
-              <Ionicons name="people-outline" size={12} color="rgba(108,99,255,0.8)" />
-              <Text style={styles.countText}>{item.remainingPortions} of {item.portions} left</Text>
-            </>
-          ) : null}
-          {type === 'request' ? (
-            <>
-              <Text style={styles.dot}>·</Text>
-              <Text style={styles.countText}>{item.offers?.length || 0} offers</Text>
-            </>
-          ) : null}
-        </View>
+        {/* Bottom row: meta info + action, aligned on one line */}
+        <View style={styles.bottomRow}>
+          <View style={styles.countRow}>
+            <Ionicons name="time-outline" size={12} color="rgba(255,255,255,0.3)" />
+            <Text style={styles.countText}>{getTimeAgo(item.createdAt)}</Text>
+            {type === 'share' ? (
+              <>
+                <Text style={styles.dot}>·</Text>
+                <Ionicons name="people-outline" size={12} color="rgba(108,99,255,0.8)" />
+                <Text style={styles.countText}>{item.remainingPortions} of {item.portions} left</Text>
+              </>
+            ) : null}
+            {type === 'request' ? (
+              <>
+                <Text style={styles.dot}>·</Text>
+                <Text style={styles.countText}>{item.offers?.length || 0} offers</Text>
+              </>
+            ) : null}
+          </View>
 
-        {/* Footer actions */}
-        <View style={styles.cardFooter}>
-          {/* Claim / Offer help — only for other users */}
+          {/* Collect / Offer help — only for other users' posts */}
           {item.postedBy?._id !== user?._id ? (
+            type === 'request' && item.selectedOffer ? (
+              // A helper has already been chosen for this request.
+              // If it's ME, give me a way into the coordination thread.
+              // If it's someone else, offers are closed — nothing to show.
+              item.selectedOffer?._id === user?._id ? (
+                <TouchableOpacity
+                  style={styles.chatHelperBtn}
+                  onPress={() => handleViewOffers(item)}
+                >
+                  <Ionicons name="chatbubble-ellipses" size={13} color="#fff" />
+                  <Text style={styles.viewOffersBtnText}>
+                    {'Chat with ' + (item.postedBy?.name || 'requester')}
+                  </Text>
+                </TouchableOpacity>
+              ) : null
+            ) : (
+              <TouchableOpacity
+                style={type === 'share' ? styles.claimBtn : styles.offerBtn}
+                onPress={() => type === 'share' ? handleClaim(item._id) : handleOffer(item._id)}
+              >
+                <Text style={type === 'share' ? styles.claimBtnText : styles.offerBtnText}>
+                  {type === 'share' ? 'Collect' : 'Offer help'}
+                </Text>
+              </TouchableOpacity>
+            )
+          ) : null}
+
+          {/* Poster of a request: chat with chosen helper, or view pending offers */}
+          {type === 'request' && item.postedBy?._id === user?._id && item.selectedOffer ? (
             <TouchableOpacity
-              style={type === 'share' ? styles.claimBtn : styles.offerBtn}
-              onPress={() => type === 'share' ? handleClaim(item._id) : handleOffer(item._id)}
+              style={styles.chatHelperBtn}
+              onPress={() => handleViewOffers(item)}
             >
-              <Text style={type === 'share' ? styles.claimBtnText : styles.offerBtnText}>
-                {type === 'share' ? 'Claim' : 'Offer help'}
+              <Ionicons name="chatbubble-ellipses" size={13} color="#fff" />
+              <Text style={styles.viewOffersBtnText}>
+                {'Chat with ' + (item.selectedOffer?.name || 'helper')}
               </Text>
             </TouchableOpacity>
-          ) : null}
-
-          {/* Out of stock — only for poster on share posts */}
-
-
-          {/* View offers — only for poster on request posts with offers */}
-          {type === 'request' && item.postedBy?._id === user?._id && item.offers?.length > 0 ? (
+          ) : type === 'request' && item.postedBy?._id === user?._id && item.offers?.length > 0 ? (
             <TouchableOpacity
               style={styles.viewOffersBtn}
               onPress={() => handleViewOffers(item)}
@@ -135,11 +159,20 @@ export default function FoodScreen() {
 const [selectedPost, setSelectedPost] = useState(null);
 const [postOffers, setPostOffers] = useState([]);
 const [loadingOffers, setLoadingOffers] = useState(false);
+// Offer comment (optional) when helping
+const [offerModal, setOfferModal] = useState(false);
+const [offerTargetId, setOfferTargetId] = useState(null);
+const [offerComment, setOfferComment] = useState('');
+const [offerSubmitting, setOfferSubmitting] = useState(false);
+// Live coordination thread input
+const [threadInput, setThreadInput] = useState('');
+const [threadSending, setThreadSending] = useState(false);
 const socketRef = useRef(null);
 const [detailModal, setDetailModal] = useState(false);
 const [detailPost, setDetailPost] = useState(null);
 
-const [foodFilter, setFoodFilter] = useState('all');
+const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'requests'
+  const [showMine, setShowMine] = useState(false); // filter current tab to my own items
   const orb1 = useRef(new Animated.Value(0)).current;
   const orb2 = useRef(new Animated.Value(0)).current;
 
@@ -184,6 +217,30 @@ const [foodFilter, setFoodFilter] = useState('all');
     setRequestPosts(prev =>
       prev.map(post => post._id === updatedPost._id ? updatedPost : post)
     );
+    // If we're viewing this request's offers, refresh the modal too — keep
+    // postOffers in sync with selectedPost so the thread doesn't get stuck
+    // showing the stale "pending offers" list after acceptance.
+    setSelectedPost(prev => {
+      if (prev && prev._id === updatedPost._id) {
+        setPostOffers(updatedPost.offers || []);
+        return updatedPost;
+      }
+      return prev;
+    });
+  });
+
+  // Listen for a new coordination-thread message
+  socketRef.current.on('offer_comment', ({ postId, post: updatedPost }) => {
+    setRequestPosts(prev =>
+      prev.map(post => post._id === updatedPost._id ? updatedPost : post)
+    );
+    setSelectedPost(prev => {
+      if (prev && prev._id === postId) {
+        setPostOffers(updatedPost.offers || []);
+        return updatedPost;
+      }
+      return prev;
+    });
   });
   // Food updated
   socketRef.current.on('food_updated', (updatedPost) => {
@@ -225,8 +282,8 @@ const resetForm = () => {
 };
 
 const handleSubmit = async () => {
-  if (!title || !category) {
-    Alert.alert('Error', 'Please fill in title and category');
+  if (!title) {
+    Alert.alert('Error', 'Please add a title');
     return;
   }
   setSubmitting(true);
@@ -253,7 +310,7 @@ if (image) {
       type: modalType,
       title,
       description,
-      category,
+      category: category || undefined,
       portions: parseInt(portions),
       preferences,
       photo: photoUrl,
@@ -281,19 +338,83 @@ if (image) {
     }
   };
 
-  const handleOffer = async (postId) => {
+  // Open the optional-comment sheet; actual send happens in submitOffer
+  const handleOffer = (postId) => {
+    setOfferTargetId(postId);
+    setOfferComment('');
+    setOfferModal(true);
+  };
+
+  const submitOffer = async () => {
+    if (!offerTargetId) return;
+    setOfferSubmitting(true);
     try {
-      await offerFood(postId, { description: 'I can help!', portions: 1 });
+      // Comment is optional — send whatever (possibly empty) note the user typed
+      await offerFood(offerTargetId, { description: offerComment.trim(), portions: 1 });
+      setOfferModal(false);
+      setOfferTargetId(null);
+      setOfferComment('');
       Alert.alert('Success', 'Offer sent!');
       fetchFoodPosts();
     } catch (error) {
       Alert.alert('Error', error.response?.data?.message || 'Could not send offer');
+    } finally {
+      setOfferSubmitting(false);
+    }
+  };
+
+  // Post a message into the accepted offer's live coordination thread
+  const sendThreadComment = async () => {
+    const text = threadInput.trim();
+    if (!text || !selectedPost) return;
+    const acceptedOffer = (postOffers || []).find(o => o.isSelected) || postOffers[0];
+    if (!acceptedOffer?._id) return;
+    setThreadSending(true);
+    try {
+      const res = await commentOnOffer(selectedPost._id, acceptedOffer._id, text);
+      const updated = res.data.post;
+      setSelectedPost(updated);
+      setPostOffers(updated.offers || []);
+      setThreadInput('');
+    } catch (error) {
+      // Keep full detail in the console for troubleshooting; show the user
+      // a clean message (the server's reason when it gives one).
+      console.log('Error sending thread comment:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+        postId: selectedPost?._id,
+        offerId: acceptedOffer?._id,
+      });
+      Alert.alert('Error', error.response?.data?.message || 'Could not send message. Please try again.');
+    } finally {
+      setThreadSending(false);
     }
   };
   const handleViewDetail = (post) => {
   setDetailPost(post);
   setDetailModal(true);
 };
+  // Ask for a permission; if permanently denied, guide the user to Settings
+  const ensurePermission = async (requestFn, label) => {
+    const current = await requestFn();
+    if (current.granted) return true;
+    // canAskAgain === false means the OS will no longer show the prompt
+    if (current.canAskAgain === false) {
+      Alert.alert(
+        `${label} access is off`,
+        `Enable ${label} access for NeighbourHub in Settings to use this option.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+    } else {
+      Alert.alert('Permission needed', `${label} permission is required.`);
+    }
+    return false;
+  };
+
   const handlePickImage = async () => {
   Alert.alert(
     'Add Photo',
@@ -302,11 +423,11 @@ if (image) {
       {
         text: 'Take Photo',
         onPress: async () => {
-          const { status } = await ImagePicker.requestCameraPermissionsAsync();
-          if (status !== 'granted') {
-            Alert.alert('Permission needed', 'Camera permission is required');
-            return;
-          }
+          const ok = await ensurePermission(
+            () => ImagePicker.requestCameraPermissionsAsync(),
+            'Camera'
+          );
+          if (!ok) return;
           const result = await ImagePicker.launchCameraAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
@@ -319,11 +440,11 @@ if (image) {
       {
         text: 'Choose from Gallery',
         onPress: async () => {
-          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (status !== 'granted') {
-            Alert.alert('Permission needed', 'Gallery permission is required');
-            return;
-          }
+          const ok = await ensurePermission(
+            () => ImagePicker.requestMediaLibraryPermissionsAsync(),
+            'Gallery'
+          );
+          if (!ok) return;
           const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
@@ -361,8 +482,12 @@ const handleAcceptOffer = async (offerId) => {
         onPress: async () => {
           try {
             await acceptOffer(selectedPost._id, offerId);
-            Alert.alert('Success', 'Offer accepted! The helper will be notified.');
-            setOffersModal(false);
+            Alert.alert('Success', 'Offer accepted! You can now coordinate directly.');
+            // Reload offers so the modal switches to the live coordination thread
+            try {
+              const res = await getFoodOffers(selectedPost._id);
+              setPostOffers(res.data.offers);
+            } catch (e) {}
             fetchFoodPosts();
           } catch (error) {
             Alert.alert('Error', error.response?.data?.message || 'Could not accept offer');
@@ -403,7 +528,10 @@ const handleMarkOutOfStock = async (postId) => {
     return `${Math.floor(diff / 86400)}d ago`;
   };
 
-
+  // Apply the "My" filter to whichever sub-tab is active
+  const mine = (p) => (p.postedBy?._id || p.postedBy) === user?._id;
+  const visibleShares = showMine ? sharePosts.filter(mine) : sharePosts;
+  const visibleRequests = showMine ? requestPosts.filter(mine) : requestPosts;
 
   return (
     <SwipeWrapper>
@@ -426,54 +554,36 @@ const handleMarkOutOfStock = async (postId) => {
             </LinearGradient>
           </View>
 
-          {/* Action buttons */}
-          <View style={styles.actions}>
-            <TouchableOpacity style={[styles.actionBtn, styles.requestBtn]} onPress={() => setModalType('request')} activeOpacity={0.8}>
-              <View style={styles.actionIcon}><Ionicons name="hand-left" size={22} color="#f5576c" /></View>
-              <Text style={styles.actionTitle}>Request</Text>
-              <Text style={styles.actionSub}>Ask neighbours</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, styles.shareBtn]} onPress={() => setModalType('share')} activeOpacity={0.8}>
-              <View style={styles.actionIcon}><Ionicons name="heart-sharp" size={22} color="#2ed573" /></View>
-              <Text style={styles.actionTitle}>Share</Text>
-              <Text style={styles.actionSub}>Post extras</Text>
+          {/* Sub-tab navigation bar: segmented toggle + My pill */}
+          <View style={styles.subTabBar}>
+            <View style={styles.segment}>
+              <TouchableOpacity
+                style={[styles.segmentBtn, activeSubTab === 'posts' && styles.segmentBtnActive]}
+                onPress={() => { setActiveSubTab('posts'); setShowMine(false); }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.segmentText, activeSubTab === 'posts' && styles.segmentTextActive]}>Posts</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.segmentBtn, activeSubTab === 'requests' && styles.segmentBtnActive]}
+                onPress={() => { setActiveSubTab('requests'); setShowMine(false); }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.segmentText, activeSubTab === 'requests' && styles.segmentTextActive]}>Requests</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.myPill, showMine && styles.myPillActive]}
+              onPress={() => setShowMine(m => !m)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="person" size={15} color={showMine ? '#fff' : '#f5576c'} />
+              <Text style={[styles.myPillText, showMine && styles.myPillTextActive]}>
+                {activeSubTab === 'posts' ? 'My Posts' : 'My Requests'}
+              </Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.filterRow}>
-  {[
-    { key: 'all', label: 'All',icon: 'grid-outline', count: sharePosts.length + requestPosts.length},
-    { key: 'share', label: 'To Claim', icon: 'heart-sharp', count: sharePosts.length },
-    { key: 'request', label: 'Requests', icon: 'hand-left', count: requestPosts.length },
-  ].map(f => (
-    <TouchableOpacity
-      key={f.key}
-      style={[styles.filterTab, foodFilter === f.key && styles.filterTabActive]}
-      onPress={() => setFoodFilter(f.key)}
-    >
-      {foodFilter === f.key && (
-        <LinearGradient
-          colors={['#f093fb', '#f5576c']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={StyleSheet.absoluteFill}
-        />
-      )}
-      <Ionicons
-        name={f.icon}
-        size={13}
-        color={foodFilter === f.key ? '#fff' : 'rgba(255,255,255,0.4)'}
-      />
-      <Text style={[styles.filterTabText, foodFilter === f.key && styles.filterTabTextActive]}>
-        {f.label}
-      </Text>
-      <View style={[styles.filterBadge, foodFilter === f.key && styles.filterBadgeActive]}>
-        <Text style={[styles.filterBadgeText, foodFilter === f.key && styles.filterBadgeTextActive]}>
-          {f.count}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  ))}
-</View>
 
           {loading ? (
   <ActivityIndicator color="#f5576c" style={{ marginTop: 40 }} />
@@ -481,47 +591,33 @@ const handleMarkOutOfStock = async (postId) => {
   <>
 <View style={styles.sectionHeader}>
   <Text style={styles.sectionTitle}>
-    {foodFilter === 'all' ? 'All posts' : foodFilter === 'share' ? 'Available to claim' : 'Open requests'}
+    {activeSubTab === 'posts'
+      ? (showMine ? 'My shared posts' : 'Available to claim')
+      : (showMine ? 'My requests' : 'Open requests')}
   </Text>
   <Text style={styles.sectionCount}>
-    {`${foodFilter === 'all' ? sharePosts.length + requestPosts.length : foodFilter === 'share' ? sharePosts.length : requestPosts.length} active`}
+    {`${activeSubTab === 'posts' ? visibleShares.length : visibleRequests.length} active`}
   </Text>
 </View>
 
-{foodFilter === 'all' ? (
-  <>
-    {sharePosts.length === 0 && requestPosts.length === 0 ? (
-      <View style={styles.emptyState}>
-        <Ionicons name="restaurant-outline" size={32} color="rgba(255,255,255,0.2)" />
-        <Text style={styles.emptyText}>Nothing posted yet</Text>
-      </View>
-    ) : (
-      <>
-        {sharePosts.map(item => (
-          <FoodCard key={item._id} item={item} type="share" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
-        ))}
-        {requestPosts.map(item => (
-          <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
-        ))}
-      </>
-    )}
-  </>
-) : foodFilter === 'share' ? (
-  sharePosts.length === 0 ? (
+{activeSubTab === 'posts' ? (
+  visibleShares.length === 0 ? (
     <View style={styles.emptyState}>
       <Ionicons name="restaurant-outline" size={32} color="rgba(255,255,255,0.2)" />
-      <Text style={styles.emptyText}>Nothing shared yet</Text>
+      <Text style={styles.emptyText}>{showMine ? "You haven't shared anything yet" : 'Nothing shared yet'}</Text>
+      <Text style={styles.emptyHint}>Tap the + button to share food or items</Text>
     </View>
-  ) : sharePosts.map(item => (
+  ) : visibleShares.map(item => (
     <FoodCard key={item._id} item={item} type="share" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
   ))
 ) : (
-  requestPosts.length === 0 ? (
+  visibleRequests.length === 0 ? (
     <View style={styles.emptyState}>
       <Ionicons name="hand-left-outline" size={32} color="rgba(255,255,255,0.2)" />
-      <Text style={styles.emptyText}>No requests yet</Text>
+      <Text style={styles.emptyText}>{showMine ? "You haven't requested anything yet" : 'No requests yet'}</Text>
+      <Text style={styles.emptyHint}>Tap the + button to ask your neighbours</Text>
     </View>
-  ) : requestPosts.map(item => (
+  ) : visibleRequests.map(item => (
     <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
   ))
 )}
@@ -532,6 +628,22 @@ const handleMarkOutOfStock = async (postId) => {
 
         </ScrollView>
       </SafeAreaView>
+
+      {/* Center-bottom + FAB — context aware */}
+      <TouchableOpacity
+        style={styles.fab}
+        activeOpacity={0.85}
+        onPress={() => setModalType(activeSubTab === 'posts' ? 'share' : 'request')}
+      >
+        <LinearGradient
+          colors={activeSubTab === 'posts' ? ['#2ed573', '#7bed9f'] : ['#f093fb', '#f5576c']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.fabGrad}
+        >
+          <Ionicons name="add" size={34} color="#fff" />
+        </LinearGradient>
+      </TouchableOpacity>
 
       {/* Modal */}
       <Modal visible={!!modalType} animationType="slide" presentationStyle="pageSheet">
@@ -622,43 +734,111 @@ const handleMarkOutOfStock = async (postId) => {
         </TouchableOpacity>
       </View>
 
-      {selectedPost && (
-        <View style={styles.offerRequestInfo}>
-          <Text style={styles.offerRequestTitle}>{selectedPost.title}</Text>
-          <Text style={styles.offerRequestSub}>{postOffers.length} people offered to help</Text>
-        </View>
-      )}
-
-      <ScrollView style={styles.modalBody}>
-        {loadingOffers ? (
-          <ActivityIndicator color="#6c63ff" style={{ marginTop: 40 }} />
-        ) : postOffers.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="hand-left-outline" size={32} color="rgba(255,255,255,0.2)" />
-            <Text style={styles.emptyText}>No offers yet</Text>
+      {selectedPost && (() => {
+        const accepted = (postOffers || []).find(o => o.isSelected);
+        // Show the OTHER party in the conversation, not myself — I might be
+        // viewing this as the poster (other party = helper) or as the
+        // accepted helper (other party = the poster).
+        const iAmPoster = (selectedPost.postedBy?._id || selectedPost.postedBy) === user?._id;
+        const otherParty = accepted ? (iAmPoster ? accepted.user : selectedPost.postedBy) : null;
+        return (
+          <View style={styles.offerRequestInfo}>
+            <Text style={styles.offerRequestTitle}>{selectedPost.title}</Text>
+            <Text style={styles.offerRequestSub}>
+              {accepted
+                ? `Coordinating with ${otherParty?.name || 'the other person'}`
+                : `${postOffers.length} ${postOffers.length === 1 ? 'person' : 'people'} offered to help`}
+            </Text>
           </View>
-        ) : (
-          postOffers.map((offer, i) => (
-            <View key={i} style={[styles.offerCard, offer.isSelected && styles.offerCardSelected]}>
-              <View style={[styles.offerAvatar, { backgroundColor: offer.user?.avatarColor || '#6c63ff' }]}>
-                <Text style={styles.offerAvatarText}>{offer.user?.initials}</Text>
-              </View>
-              <View style={styles.offerInfo}>
-                <Text style={styles.offerName}>{offer.user?.name}</Text>
-                <Text style={styles.offerHouse}>{offer.user?.houseNo} · {offer.user?.block}</Text>
-                {offer.description && (
-                  <Text style={styles.offerDesc}>{offer.description}</Text>
-                )}
-                {offer.pickupTime && (
-                  <Text style={styles.offerTime}>⏰ {offer.pickupTime}</Text>
-                )}
-              </View>
-              {offer.isSelected ? (
-                <View style={styles.acceptedBadge}>
-                  <Ionicons name="checkmark-circle" size={20} color="#2ed573" />
-                  <Text style={styles.acceptedText}>Accepted</Text>
+        );
+      })()}
+
+      {loadingOffers ? (
+        <ActivityIndicator color="#6c63ff" style={{ marginTop: 40 }} />
+      ) : postOffers.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="hand-left-outline" size={32} color="rgba(255,255,255,0.2)" />
+          <Text style={styles.emptyText}>No offers yet</Text>
+        </View>
+      ) : ((postOffers || []).find(o => o.isSelected)) ? (
+        (() => {
+          const accepted = (postOffers || []).find(o => o.isSelected);
+          const comments = accepted?.comments || [];
+          const iAmPoster = (selectedPost?.postedBy?._id || selectedPost?.postedBy) === user?._id;
+          const otherParty = iAmPoster ? accepted.user : selectedPost?.postedBy;
+          return (
+            <KeyboardAvoidingView
+              style={{ flex: 1 }}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              keyboardVerticalOffset={90}
+            >
+              <View style={styles.threadHelperCard}>
+                <View style={[styles.offerAvatar, { backgroundColor: otherParty?.avatarColor || '#6c63ff' }]}>
+                  <Text style={styles.offerAvatarText}>{otherParty?.initials}</Text>
                 </View>
-              ) : (
+                <View style={styles.offerInfo}>
+                  <Text style={styles.offerName}>{otherParty?.name}</Text>
+                  <Text style={styles.offerHouse}>{otherParty?.houseNo}{otherParty?.block ? ` · ${otherParty.block}` : ''}</Text>
+                </View>
+                <View style={styles.acceptedBadge}>
+                  <Ionicons name="checkmark-circle" size={18} color="#2ed573" />
+                  <Text style={styles.acceptedText}>{iAmPoster ? 'Chosen' : 'Requester'}</Text>
+                </View>
+              </View>
+
+              <ScrollView style={styles.threadBody} contentContainerStyle={{ paddingVertical: 12 }}>
+                {comments.length === 0 ? (
+                  <Text style={styles.threadHint}>Say hello to coordinate the pickup 👋</Text>
+                ) : (
+                  comments.map((c, i) => {
+                    const cid = c.user?._id || c.user;
+                    const mine = cid && user?._id && cid.toString() === user._id.toString();
+                    return (
+                      <View key={i} style={[styles.threadRow, mine ? styles.threadRowMine : styles.threadRowOther]}>
+                        <View style={[styles.threadBubble, mine ? styles.threadBubbleMine : styles.threadBubbleOther]}>
+                          {!mine && <Text style={styles.threadAuthor}>{c.user?.name || 'Helper'}</Text>}
+                          <Text style={styles.threadText}>{c.text}</Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+
+              <View style={styles.threadInputBar}>
+                <TextInput
+                  style={styles.threadTextInput}
+                  placeholder="Type a message..."
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  value={threadInput}
+                  onChangeText={setThreadInput}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={styles.threadSendBtn}
+                  onPress={sendThreadComment}
+                  disabled={threadSending || !threadInput.trim()}
+                >
+                  {threadSending
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Ionicons name="send" size={18} color="#fff" />}
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
+          );
+        })()
+      ) : (
+        <ScrollView style={styles.modalBody}>
+          {postOffers.map((offer, i) => (
+            <View key={i} style={styles.offerCard}>
+              <View style={styles.offerCardHeader}>
+                <View style={[styles.offerAvatar, { backgroundColor: offer.user?.avatarColor || '#6c63ff' }]}>
+                  <Text style={styles.offerAvatarText}>{offer.user?.initials}</Text>
+                </View>
+                <View style={styles.offerInfo}>
+                  <Text style={styles.offerName}>{offer.user?.name}</Text>
+                  <Text style={styles.offerHouse}>{offer.user?.houseNo} · {offer.user?.block}</Text>
+                </View>
                 <TouchableOpacity
                   style={styles.acceptBtn}
                   onPress={() => handleAcceptOffer(offer._id)}
@@ -672,14 +852,75 @@ const handleMarkOutOfStock = async (postId) => {
                     <Text style={styles.acceptBtnText}>Accept</Text>
                   </LinearGradient>
                 </TouchableOpacity>
+              </View>
+              {!!offer.description && (
+                <View style={styles.offerNoteBox}>
+                  <Text style={styles.offerNoteText}>{offer.description}</Text>
+                </View>
               )}
             </View>
-          ))
-        )}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      )}
     </SafeAreaView>
   </View>
 </Modal>
+
+      {/* Optional note when offering to help */}
+      <Modal visible={offerModal} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.offerModalOverlay}>
+            <TouchableOpacity
+              style={{ flex: 1 }}
+              activeOpacity={1}
+              onPress={() => setOfferModal(false)}
+            />
+            <View style={styles.offerModalSheet}>
+              <Text style={styles.offerModalTitle}>Offer to help</Text>
+              <Text style={styles.offerModalSub}>
+                Add a note if you like — it is optional. You can also just send your offer.
+              </Text>
+              <TextInput
+                style={styles.offerModalInput}
+                placeholder="e.g. I can drop it by this evening around 6pm"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                value={offerComment}
+                onChangeText={setOfferComment}
+                multiline
+                autoFocus
+              />
+              <View style={styles.offerModalActions}>
+                <TouchableOpacity
+                  style={styles.offerModalCancel}
+                  onPress={() => setOfferModal(false)}
+                  disabled={offerSubmitting}
+                >
+                  <Text style={styles.offerModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.offerModalSubmit}
+                  onPress={submitOffer}
+                  disabled={offerSubmitting}
+                >
+                  <LinearGradient
+                    colors={['#f5576c', '#f093fb']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.offerModalSubmitGrad}
+                  >
+                    {offerSubmitting
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.offerModalSubmitText}>Send offer</Text>}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 <Modal visible={detailModal} animationType="slide" presentationStyle="pageSheet">
   <View style={styles.modal}>
     <SafeAreaView style={{ flex: 1 }} edges={['top']}>
@@ -715,7 +956,7 @@ const handleMarkOutOfStock = async (postId) => {
                 alignSelf: 'flex-start', marginTop: 6
               }]}>
                 <Text style={[styles.badgeText, { color: detailPost.type === 'share' ? '#2ed573' : '#f5576c' }]}>
-                  {detailPost.type === 'share' ? detailPost.category : 'Request'}
+                  {detailPost.type === 'share' ? (detailPost.category || 'Food') : 'Request'}
                 </Text>
               </View>
             </View>
@@ -801,30 +1042,111 @@ const handleMarkOutOfStock = async (postId) => {
               </View>
             )}
 
+            {/* Offers received — only visible to the poster of a request */}
+            {detailPost.type === 'request' &&
+              detailPost.postedBy?._id === user?._id && (
+              <View style={styles.detailSection}>
+                <Text style={styles.detailSectionTitle}>
+                  {detailPost.offers?.length
+                    ? `Help offered (${detailPost.offers.length})`
+                    : 'Help offered'}
+                </Text>
+                {!detailPost.offers?.length ? (
+                  <Text style={styles.detailDesc}>No offers yet. You will be notified when someone offers to help.</Text>
+                ) : (
+                  detailPost.offers.map((offer, i) => (
+                    <View key={i} style={[styles.detailOfferRow, offer.isSelected && styles.detailOfferRowSelected]}>
+                      <View style={[styles.claimedAvatar, { backgroundColor: offer.user?.avatarColor || '#6c63ff' }]}>
+                        <Text style={styles.claimedAvatarText}>{offer.user?.initials || '?'}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.claimName}>{offer.user?.name}</Text>
+                        <Text style={styles.claimHouse}>{offer.user?.houseNo}{offer.user?.block ? ` · ${offer.user.block}` : ''}</Text>
+                        {!!offer.description && (
+                          <Text style={styles.detailOfferNote}>{offer.description}</Text>
+                        )}
+                      </View>
+                      {offer.isSelected && (
+                        <View style={styles.acceptedBadge}>
+                          <Ionicons name="checkmark-circle" size={18} color="#2ed573" />
+                          <Text style={styles.acceptedText}>Chosen</Text>
+                        </View>
+                      )}
+                    </View>
+                  ))
+                )}
+                {detailPost.offers?.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.detailViewOffersBtn}
+                    onPress={() => {
+                      setDetailModal(false);
+                      handleViewOffers(detailPost);
+                    }}
+                  >
+                    {detailPost.selectedOffer ? (
+                      <>
+                        <Ionicons name="chatbubble-ellipses" size={16} color="#6c63ff" />
+                        <Text style={styles.detailViewOffersText}>Message helper</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.detailViewOffersText}>Choose a helper</Text>
+                        <Ionicons name="arrow-forward" size={16} color="#6c63ff" />
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
             {/* Action button */}
             {detailPost.postedBy?._id !== user?._id && (
-              <TouchableOpacity
-                style={styles.detailActionBtn}
-                onPress={() => {
-                  setDetailModal(false);
-                  if (detailPost.type === 'share') {
-                    handleClaim(detailPost._id);
-                  } else {
-                    handleOffer(detailPost._id);
-                  }
-                }}
-              >
-                <LinearGradient
-                  colors={detailPost.type === 'share' ? ['#2ed573', '#7bed9f'] : ['#6c63ff', '#a78bfa']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.detailActionGrad}
+              detailPost.type === 'request' && detailPost.selectedOffer ? (
+                // Offers are closed. If I'm the chosen helper, let me into the thread.
+                detailPost.selectedOffer?._id === user?._id ? (
+                  <TouchableOpacity
+                    style={styles.detailActionBtn}
+                    onPress={() => {
+                      setDetailModal(false);
+                      handleViewOffers(detailPost);
+                    }}
+                  >
+                    <LinearGradient
+                      colors={['#6c63ff', '#a78bfa']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.detailActionGrad}
+                    >
+                      <Text style={styles.detailActionText}>
+                        {'Chat with ' + (detailPost.postedBy?.name || 'requester')}
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : null
+              ) : (
+                <TouchableOpacity
+                  style={styles.detailActionBtn}
+                  onPress={() => {
+                    setDetailModal(false);
+                    if (detailPost.type === 'share') {
+                      handleClaim(detailPost._id);
+                    } else {
+                      handleOffer(detailPost._id);
+                    }
+                  }}
                 >
-                  <Text style={styles.detailActionText}>
-                    {detailPost.type === 'share' ? 'Claim Now' : 'Offer Help'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
+                  <LinearGradient
+                    colors={detailPost.type === 'share' ? ['#2ed573', '#7bed9f'] : ['#6c63ff', '#a78bfa']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.detailActionGrad}
+                  >
+                    <Text style={styles.detailActionText}>
+                      {detailPost.type === 'share' ? 'Collect' : 'Offer Help'}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )
             )}
             {/* Out of stock — only for poster */}
 {detailPost.type === 'share' && detailPost.postedBy?._id === user?._id && (
@@ -851,11 +1173,11 @@ const handleMarkOutOfStock = async (postId) => {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a1a' },
+  container: { flex: 1, backgroundColor: '#07231f' },
   bg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   orb: { position: 'absolute', borderRadius: 999 },
-  orb1: { width: 300, height: 300, backgroundColor: 'rgba(240,147,251,0.15)', top: -60, right: -80 },
-  orb2: { width: 250, height: 250, backgroundColor: 'rgba(245,87,108,0.12)', top: 300, left: -60 },
+  orb1: { width: 300, height: 300, backgroundColor: 'rgba(52,211,153,0.20)', top: -60, right: -80 },
+  orb2: { width: 250, height: 250, backgroundColor: 'rgba(45,212,191,0.13)', top: 300, left: -60 },
   header: { padding: 16 },
   headerGrad: { borderRadius: 20, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 4 },
@@ -882,7 +1204,8 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: '#6c63ff', borderRadius: 2 },
   cardDesc: { fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 18, marginBottom: 10 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  countRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 },
+  countRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, flexWrap: 'wrap' },
+  bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 10 },
   countText: { fontSize: 11, color: 'rgba(255,255,255,0.35)' },
   dot: { fontSize: 11, color: 'rgba(255,255,255,0.2)' },
   claimBtn: { backgroundColor: '#2ed573', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
@@ -891,7 +1214,75 @@ const styles = StyleSheet.create({
   offerBtnText: { color: '#a78bfa', fontSize: 12, fontWeight: '700' },
   emptyState: { alignItems: 'center', paddingVertical: 30, gap: 8 },
   emptyText: { fontSize: 13, color: 'rgba(255,255,255,0.25)' },
-  modal: { flex: 1, backgroundColor: '#0f0f1e' },
+  emptyHint: { fontSize: 12, color: 'rgba(255,255,255,0.2)', marginTop: 2, textAlign: 'center' },
+
+  // Sub-tab navigation bar
+  subTabBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 26,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  segmentBtn: {
+    paddingHorizontal: 22,
+    paddingVertical: 11,
+    borderRadius: 22,
+  },
+  segmentBtnActive: {
+    backgroundColor: '#f5576c',
+  },
+  segmentText: { fontSize: 15, fontWeight: '800', color: 'rgba(255,255,255,0.45)' },
+  segmentTextActive: { color: '#fff' },
+  myPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+    borderRadius: 24,
+    backgroundColor: 'rgba(245,87,108,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245,87,108,0.3)',
+  },
+  myPillActive: {
+    backgroundColor: '#f5576c',
+    borderColor: '#f5576c',
+  },
+  myPillText: { fontSize: 15, fontWeight: '800', color: '#f5576c' },
+  myPillTextActive: { color: '#fff' },
+
+  // Center-bottom FAB
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    shadowColor: '#f5576c',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  fabGrad: {
+    flex: 1,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modal: { flex: 1, backgroundColor: '#0a2a25' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
   closeBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center', justifyContent: 'center' },
@@ -959,7 +1350,11 @@ detailActionBtn: { borderRadius: 14, overflow: 'hidden', marginTop: 8, marginBot
 detailActionGrad: { padding: 16, alignItems: 'center' },
 detailActionText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
-  viewOffersBtn: {
+  chatHelperBtn: {
+  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+  backgroundColor: '#2ed573', borderRadius: 12, paddingVertical: 10, marginTop: 8,
+},
+viewOffersBtn: {
   flexDirection: 'row', alignItems: 'center', gap: 5,
   backgroundColor: '#6c63ff', paddingHorizontal: 12,
   paddingVertical: 7, borderRadius: 20,
@@ -1089,6 +1484,112 @@ outOfStockBtn: {
   borderRadius: 14, padding: 14,
   marginTop: 10, marginBottom: 40,
 },
-outOfStockText: { fontSize: 14, color: '#ff4757', fontWeight: '700' }
+outOfStockText: { fontSize: 14, color: '#ff4757', fontWeight: '700' },
+
+// Offer card (pre-accept list) + optional note
+offerCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+offerNoteBox: {
+  marginTop: 10, marginLeft: 58,
+  backgroundColor: 'rgba(255,255,255,0.04)',
+  borderRadius: 12, padding: 10,
+  borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+},
+offerNoteText: { fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 18 },
+
+// Live coordination thread (post-accept)
+threadHelperCard: {
+  flexDirection: 'row', alignItems: 'center', gap: 12,
+  marginHorizontal: 20, marginTop: 4, marginBottom: 8,
+  backgroundColor: 'rgba(46,213,115,0.05)',
+  borderWidth: 1, borderColor: 'rgba(46,213,115,0.25)',
+  borderRadius: 16, padding: 12,
+},
+threadBody: { flex: 1, paddingHorizontal: 20 },
+threadHint: {
+  textAlign: 'center', color: 'rgba(255,255,255,0.35)',
+  fontSize: 13, marginTop: 30,
+},
+threadRow: { flexDirection: 'row', marginBottom: 8 },
+threadRowMine: { justifyContent: 'flex-end' },
+threadRowOther: { justifyContent: 'flex-start' },
+threadBubble: { maxWidth: '78%', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9 },
+threadBubbleMine: { backgroundColor: '#6c63ff', borderBottomRightRadius: 4 },
+threadBubbleOther: {
+  backgroundColor: 'rgba(255,255,255,0.08)', borderBottomLeftRadius: 4,
+  borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+},
+threadAuthor: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '700', marginBottom: 2 },
+threadText: { fontSize: 14, color: '#fff', lineHeight: 19 },
+threadInputBar: {
+  flexDirection: 'row', alignItems: 'flex-end', gap: 10,
+  paddingHorizontal: 16, paddingVertical: 10, paddingBottom: 16,
+  borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.07)',
+},
+threadTextInput: {
+  flex: 1, maxHeight: 100,
+  backgroundColor: 'rgba(255,255,255,0.06)',
+  borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
+  color: '#fff', fontSize: 14,
+  borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+},
+threadSendBtn: {
+  width: 44, height: 44, borderRadius: 22,
+  backgroundColor: '#6c63ff',
+  alignItems: 'center', justifyContent: 'center',
+},
+
+// Offer note modal (optional comment when offering help)
+offerModalOverlay: {
+  flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+  justifyContent: 'flex-end',
+},
+offerModalSheet: {
+  backgroundColor: '#1a1a2e',
+  borderTopLeftRadius: 24, borderTopRightRadius: 24,
+  padding: 24, paddingBottom: 32,
+  borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+},
+offerModalTitle: { fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 4 },
+offerModalSub: { fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16 },
+offerModalInput: {
+  minHeight: 90, maxHeight: 160,
+  backgroundColor: 'rgba(255,255,255,0.05)',
+  borderRadius: 14, padding: 14,
+  color: '#fff', fontSize: 15, textAlignVertical: 'top',
+  borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  marginBottom: 18,
+},
+offerModalActions: { flexDirection: 'row', gap: 12 },
+offerModalCancel: {
+  flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center',
+  backgroundColor: 'rgba(255,255,255,0.06)',
+},
+offerModalCancelText: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '700' },
+offerModalSubmit: { flex: 2, borderRadius: 14, overflow: 'hidden' },
+offerModalSubmitGrad: { paddingVertical: 14, alignItems: 'center' },
+offerModalSubmitText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+
+// Offers shown inside the request detail modal
+detailOfferRow: {
+  flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+  backgroundColor: 'rgba(255,255,255,0.04)',
+  borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+  borderRadius: 14, padding: 12, marginBottom: 8,
+},
+detailOfferRowSelected: {
+  borderColor: 'rgba(46,213,115,0.3)',
+  backgroundColor: 'rgba(46,213,115,0.05)',
+},
+detailOfferNote: {
+  fontSize: 13, color: 'rgba(255,255,255,0.7)',
+  marginTop: 6, lineHeight: 18,
+},
+detailViewOffersBtn: {
+  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+  marginTop: 6, paddingVertical: 12, borderRadius: 12,
+  backgroundColor: 'rgba(108,99,255,0.12)',
+  borderWidth: 1, borderColor: 'rgba(108,99,255,0.3)',
+},
+detailViewOffersText: { color: '#6c63ff', fontSize: 14, fontWeight: '700' }
 
 });

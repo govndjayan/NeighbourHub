@@ -1,11 +1,18 @@
 const mongoose = require('mongoose');
 
+const offerCommentSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  text: { type: String, required: true },
+}, { timestamps: true });
+
 const offerSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  description: { type: String },
+  description: { type: String }, // the offerer's initial comment / pitch
   portions: { type: Number },
   pickupTime: { type: String },
   isSelected: { type: Boolean, default: false },
+  fulfilled: { type: Boolean, default: false }, // offerer marked their promise done
+  comments: [offerCommentSchema], // live 2-way thread, active only after acceptance
 }, { timestamps: true });
 
 const claimSchema = new mongoose.Schema({
@@ -21,8 +28,9 @@ const foodSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'],
-    required: true,
+    // Optional: allow posts with no category. Empty string / undefined are permitted.
+    enum: ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item', '', null],
+    default: undefined,
   },
   title: { type: String, required: true },
   description: { type: String },

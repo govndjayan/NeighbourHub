@@ -165,7 +165,7 @@ export default function LoginScreen() {
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity style={styles.forgot}>
+              <TouchableOpacity style={styles.forgot} onPress={() => router.push('/(auth)/forgot-password')}>
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </TouchableOpacity>
 
@@ -217,24 +217,24 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a1a' },
+  container: { flex: 1, backgroundColor: '#07231f' },
   bg: { position: 'absolute', inset: 0 },
   orb: { position: 'absolute', borderRadius: 999 },
   orb1: {
     width: 300, height: 300,
-    backgroundColor: 'rgba(108,99,255,0.35)',
+    backgroundColor: 'rgba(52,211,153,0.35)',
     top: -80, left: -60,
-    shadowColor: '#6c63ff', shadowRadius: 80, shadowOpacity: 1,
+    shadowColor: '#34d399', shadowRadius: 80, shadowOpacity: 1,
   },
   orb2: {
     width: 250, height: 250,
-    backgroundColor: 'rgba(240,147,251,0.25)',
+    backgroundColor: 'rgba(45,212,191,0.25)',
     top: 120, right: -80,
-    shadowColor: '#f093fb', shadowRadius: 60, shadowOpacity: 1,
+    shadowColor: '#2dd4bf', shadowRadius: 60, shadowOpacity: 1,
   },
   orb3: {
     width: 200, height: 200,
-    backgroundColor: 'rgba(46,213,115,0.12)',
+    backgroundColor: 'rgba(163,230,53,0.12)',
     bottom: 300, left: -40,
   },
   grid: {

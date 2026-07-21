@@ -1,22 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, FlatList, ActivityIndicator, Animated
+  KeyboardAvoidingView, Platform, FlatList, ActivityIndicator, Animated,
+  Linking, Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-import { getMessages, sendMessage as sendMessageApi } from '../../services/api';
+import { getMessages, sendMessage as sendMessageApi, markAsRead } from '../../services/api';
+import { useBadges } from '../../context/BadgeContext';
 import { io } from 'socket.io-client';
+import { BASE_URL } from '../../constants/config';
 
-const SOCKET_URL = 'http://192.168.1.22:5000'; // Replace with your IP
+const SOCKET_URL = BASE_URL;
 
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { id, name, designation, initials, color } = useLocalSearchParams();
+  const { refreshExperts } = useBadges();
+  const { id, name, designation, initials, color, phone } = useLocalSearchParams();
   const flatListRef = useRef(null);
   const socketRef = useRef(null);
   const inputRef = useRef(null);
@@ -40,7 +44,10 @@ export default function ChatScreen() {
     setupSocket();
 
     return () => {
-      if (socketRef.current) socketRef.current.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
   }, []);
 
@@ -49,6 +56,10 @@ export default function ChatScreen() {
   };
 
   const setupSocket = () => {
+    // Guard against creating a duplicate socket (e.g. effect re-run in dev),
+    // which would register a second 'receive_message' listener and duplicate
+    // incoming messages.
+    if (socketRef.current) return;
     socketRef.current = io(SOCKET_URL, {
       transports: ['websocket'],
     });
@@ -57,7 +68,17 @@ export default function ChatScreen() {
     socketRef.current.emit('join_room', roomId);
 
     socketRef.current.on('receive_message', (message) => {
-      setMessages(prev => [...prev, message]);
+      if (!message?._id) return;
+      // Ignore the echo of our OWN message — the sender already shows it
+      // optimistically and finalizes it via the REST response. Handling it
+      // here too would briefly show it twice before reconciling.
+      const senderId = message.sender?._id || message.sender;
+      if (senderId && user?._id && senderId.toString() === user._id.toString()) return;
+      setMessages(prev => {
+        // De-dup: skip if we already have this message
+        if (prev.some(m => m._id === message._id)) return prev;
+        return [...prev, message];
+      });
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
 
@@ -72,6 +93,13 @@ export default function ChatScreen() {
     try {
       const res = await getMessages(id);
       setMessages(res.data.messages);
+      // Mark incoming messages as read, then refresh the experts badge
+      try {
+        await markAsRead(id);
+        refreshExperts();
+      } catch (e) {
+        console.log('markAsRead failed:', e.message);
+      }
     } catch (error) {
       console.log('Error fetching messages:', error.message);
     } finally {
@@ -98,19 +126,26 @@ export default function ChatScreen() {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 
     try {
-      const roomId = getRoomId();
-      await sendMessageApi(id, { text });
-
-      // Emit via socket
-      socketRef.current?.emit('send_message', {
-        roomId,
-        text,
-        sender: user,
-        receiver: { _id: id },
-        createdAt: new Date().toISOString(),
-      });
+      // REST call persists the message AND broadcasts it via the server
+      // (req.io.to(roomId).emit('receive_message')). That is the single
+      // source of truth — do NOT also emit over the socket, or the receiver
+      // gets the message twice.
+      const res = await sendMessageApi(id, { text });
+      const saved = res.data?.message;
+      if (saved?._id) {
+        // Reconcile: drop the optimistic temp, and add the real persisted
+        // message only if the server echo hasn't already added it. This is
+        // race-safe whether the REST response or the socket echo arrives first.
+        setMessages(prev => {
+          const withoutTemp = prev.filter(m => m._id !== tempMsg._id);
+          if (withoutTemp.some(m => m._id === saved._id)) return withoutTemp;
+          return [...withoutTemp, saved];
+        });
+      }
     } catch (error) {
       console.log('Error sending message:', error.message);
+      // Roll back the optimistic message on failure
+      setMessages(prev => prev.filter(m => m._id !== tempMsg._id));
     } finally {
       setSending(false);
     }
@@ -120,6 +155,14 @@ export default function ChatScreen() {
     setInput(text);
     const roomId = getRoomId();
     socketRef.current?.emit('typing', { roomId, userId: user._id });
+  };
+
+  const handleCall = () => {
+    if (!phone) {
+      Alert.alert('No phone number', 'This contact has no phone number on file.');
+      return;
+    }
+    Linking.openURL(`tel:${phone}`);
   };
 
   const formatTime = (date) => {
@@ -194,7 +237,7 @@ export default function ChatScreen() {
             <Text style={styles.headerName}>{name}</Text>
             <Text style={styles.headerDesig}>{designation}</Text>
           </View>
-          <TouchableOpacity style={styles.callBtn}>
+          <TouchableOpacity style={styles.callBtn} onPress={handleCall}>
             <Ionicons name="call" size={16} color="#fff" />
           </TouchableOpacity>
 
@@ -292,10 +335,10 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a1a' },
+  container: { flex: 1, backgroundColor: '#07231f' },
   bg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  orb1: { position: 'absolute', width: 300, height: 300, borderRadius: 150, backgroundColor: 'rgba(108,99,255,0.15)', top: -60, left: -60 },
-  orb2: { position: 'absolute', width: 250, height: 250, borderRadius: 125, backgroundColor: 'rgba(167,139,250,0.1)', bottom: 100, right: -60 },
+  orb1: { position: 'absolute', width: 300, height: 300, borderRadius: 150, backgroundColor: 'rgba(52,211,153,0.15)', top: -60, left: -60 },
+  orb2: { position: 'absolute', width: 250, height: 250, borderRadius: 125, backgroundColor: 'rgba(45,212,191,0.10)', bottom: 100, right: -60 },
 
   // Header
   header: {

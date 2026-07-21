@@ -95,12 +95,17 @@ export default function RegisterScreen() {
 
   const handleNext = () => {
     if (step === 1) {
-      if (!name || !phone || !password) {
-        Alert.alert('Error', 'Please fill in name, phone and password');
+      if (!name || !phone || !email || !password) {
+        Alert.alert('Error', 'Please fill in name, phone, email and password');
         return;
       }
       if (phone.length < 10) {
         Alert.alert('Error', 'Please enter a valid 10-digit phone number');
+        return;
+      }
+      const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+      if (!emailOk) {
+        Alert.alert('Error', 'Please enter a valid email address');
         return;
       }
     }
@@ -198,7 +203,7 @@ export default function RegisterScreen() {
                   <Text style={styles.label}>PHONE NUMBER</Text>
                   <InputField {...inputProps} icon="call-outline" placeholder="10-digit phone number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" fieldName="phone" maxLength={10} />
 
-                  <Text style={styles.label}>EMAIL (OPTIONAL)</Text>
+                  <Text style={styles.label}>EMAIL</Text>
                   <InputField {...inputProps} icon="mail-outline" placeholder="your@email.com" value={email} onChangeText={setEmail} keyboardType="email-address" fieldName="email" />
 
                   <Text style={styles.label}>PASSWORD</Text>
@@ -347,11 +352,11 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a1a' },
+  container: { flex: 1, backgroundColor: '#07231f' },
   bg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   orb: { position: 'absolute', borderRadius: 999 },
-  orb1: { width: 280, height: 280, backgroundColor: 'rgba(108,99,255,0.3)', top: -60, right: -60 },
-  orb2: { width: 220, height: 220, backgroundColor: 'rgba(240,147,251,0.2)', top: 200, left: -80 },
+  orb1: { width: 280, height: 280, backgroundColor: 'rgba(52,211,153,0.30)', top: -60, right: -60 },
+  orb2: { width: 220, height: 220, backgroundColor: 'rgba(45,212,191,0.18)', top: 200, left: -80 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingTop: 16 },
   backBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
   topTitle: { fontSize: 16, fontWeight: '700', color: '#fff' },

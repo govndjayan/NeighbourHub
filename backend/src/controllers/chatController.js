@@ -72,8 +72,8 @@ exports.getConversations = async (req, res) => {
     const messages = await Message.find({
       $or: [{ sender: userId }, { receiver: userId }]
     })
-      .populate('sender', 'name initials avatarColor houseNo designation isServiceProvider')
-      .populate('receiver', 'name initials avatarColor houseNo designation isServiceProvider')
+      .populate('sender', 'name initials avatarColor houseNo designation isServiceProvider phone')
+      .populate('receiver', 'name initials avatarColor houseNo designation isServiceProvider phone')
       .sort({ createdAt: -1 });
 
     // Group by roomId and get last message + unread count

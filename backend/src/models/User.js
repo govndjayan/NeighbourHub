@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   phone: { type: String, required: true, unique: true },
-  email: { type: String, trim: true },
+  email: { type: String, required: true, unique: true, trim: true, lowercase: true },
   houseNo: { type: String, required: true },
   block: { type: String, required: true },
   residentSince: { type: String },
@@ -32,6 +33,8 @@ const userSchema = new mongoose.Schema({
   },
   availabilityNote: { type: String, default: '' },
   isActive: { type: Boolean, default: true },
+  resetPasswordOTP: { type: String, select: false },
+  resetPasswordExpire: { type: Date, select: false },
 }, { timestamps: true });
 
 // Hash password before saving
@@ -43,6 +46,15 @@ userSchema.pre('save', async function () {
 
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+
+// Generate a 6-digit OTP, store its hash + expiry (10 min), return the plain OTP
+userSchema.methods.getResetOTP = function () {
+  const otp = ('' + Math.floor(100000 + Math.random() * 900000));
+  this.resetPasswordOTP = crypto.createHash('sha256').update(otp).digest('hex');
+  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+  return otp;
 };
 
 module.exports = mongoose.model('User', userSchema); 

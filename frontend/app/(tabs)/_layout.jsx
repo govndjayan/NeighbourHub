@@ -1,8 +1,16 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '../../constants/colors';
+import { useBadges } from '../../context/BadgeContext';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  const { counts, markSeen } = useBadges();
+
+  // Cap the visible number so a huge count doesn't distort the badge
+  const badge = (n) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
+
   return (
     <Tabs
       screenOptions={{
@@ -10,17 +18,25 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.light,
         tabBarStyle: {
-  backgroundColor: 'rgba(10,10,26,0.95)',
-  borderTopColor: 'rgba(255,255,255,0.06)',
-  height: 62,
-  paddingBottom: 10,
-  paddingTop: 6,
-},
-tabBarActiveTintColor: '#6c63ff',
-tabBarInactiveTintColor: 'rgba(255,255,255,0.3)',
+          backgroundColor: 'rgba(6,26,23,0.95)',
+          borderTopColor: 'rgba(255,255,255,0.06)',
+          height: 62 + insets.bottom,
+          paddingBottom: insets.bottom + 8,
+          paddingTop: 6,
+        },
+        tabBarActiveTintColor: '#6c63ff',
+        tabBarInactiveTintColor: 'rgba(255,255,255,0.3)',
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '600',
+        },
+        tabBarBadgeStyle: {
+          backgroundColor: '#ff4757',
+          fontSize: 10,
+          fontWeight: '700',
+          minWidth: 18,
+          height: 18,
+          lineHeight: 14,
         },
       }}
     >
@@ -40,7 +56,9 @@ tabBarInactiveTintColor: 'rgba(255,255,255,0.3)',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="restaurant" size={size} color={color} />
           ),
+          tabBarBadge: badge(counts.food),
         }}
+        listeners={{ focus: () => markSeen('food') }}
       />
       <Tabs.Screen
         name="experts"
@@ -49,7 +67,9 @@ tabBarInactiveTintColor: 'rgba(255,255,255,0.3)',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="briefcase" size={size} color={color} />
           ),
+          tabBarBadge: badge(counts.experts),
         }}
+        listeners={{ focus: () => markSeen('experts') }}
       />
       <Tabs.Screen
         name="complaints"
@@ -58,8 +78,9 @@ tabBarInactiveTintColor: 'rgba(255,255,255,0.3)',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="alert-circle" size={size} color={color} />
           ),
-          tabBarBadge: 3,
+          tabBarBadge: badge(counts.complaints),
         }}
+        listeners={{ focus: () => markSeen('complaints') }}
       />
       <Tabs.Screen
         name="directory"

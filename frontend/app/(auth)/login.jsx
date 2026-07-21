@@ -137,6 +137,8 @@ export default function LoginScreen() {
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
                   maxLength={10}
+                  textContentType="username"
+                  autoComplete="username"
                   onFocus={() => setFocusedInput('phone')}
                   onBlur={() => setFocusedInput(null)}
                 />
@@ -153,6 +155,8 @@ export default function LoginScreen() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
+                  textContentType="password"
+                  autoComplete="password"
                   onFocus={() => setFocusedInput('password')}
                   onBlur={() => setFocusedInput(null)}
                 />

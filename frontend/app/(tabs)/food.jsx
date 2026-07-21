@@ -148,7 +148,7 @@ const ThreadPanel = ({ loading, comments, currentUserId, inputValue, onChangeInp
             ) : (
               <TouchableOpacity
                 style={type === 'share' ? styles.claimBtn : styles.offerBtn}
-                onPress={() => type === 'share' ? handleClaim(item._id) : handleOffer(item._id)}
+                onPress={() => type === 'share' ? handleClaim(item) : handleOffer(item._id)}
               >
                 <Text style={type === 'share' ? styles.claimBtnText : styles.offerBtnText}>
                   {type === 'share' ? 'Collect' : 'Offer help'}
@@ -205,6 +205,11 @@ const [offerModal, setOfferModal] = useState(false);
 const [offerTargetId, setOfferTargetId] = useState(null);
 const [offerComment, setOfferComment] = useState('');
 const [offerSubmitting, setOfferSubmitting] = useState(false);
+// How many portions to collect from a share post
+const [claimModal, setClaimModal] = useState(false);
+const [claimTarget, setClaimTarget] = useState(null);
+const [claimQuantity, setClaimQuantity] = useState(1);
+const [claimSubmitting, setClaimSubmitting] = useState(false);
 // Live coordination thread — always visible on an accepted request's card
 // (no separate "message helper" click). Keyed by food post id since several
 // accepted requests can have their threads showing at once.
@@ -447,13 +452,25 @@ const handleDeletePost = (post) => {
   );
 };
 
-  const handleClaim = async (postId) => {
+  // Open the quantity sheet; actual claim happens in submitClaim
+  const handleClaim = (post) => {
+    setClaimTarget(post);
+    setClaimQuantity(1);
+    setClaimModal(true);
+  };
+
+  const submitClaim = async () => {
+    if (!claimTarget) return;
+    setClaimSubmitting(true);
     try {
-      await claimFood(postId, { quantity: 1 });
-      Alert.alert('Success', 'Claimed successfully!');
+      await claimFood(claimTarget._id, { quantity: claimQuantity });
+      setClaimModal(false);
+      Alert.alert('Success', `Claimed ${claimQuantity} portion${claimQuantity > 1 ? 's' : ''}!`);
       fetchFoodPosts();
     } catch (error) {
       Alert.alert('Error', error.response?.data?.message || 'Could not claim');
+    } finally {
+      setClaimSubmitting(false);
     }
   };
 
@@ -1021,6 +1038,69 @@ const handleMarkOutOfStock = async (postId) => {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* How many portions to collect */}
+      <Modal visible={claimModal} animationType="slide" transparent>
+        <View style={styles.offerModalOverlay}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setClaimModal(false)}
+          />
+          <View style={styles.offerModalSheet}>
+            <Text style={styles.offerModalTitle}>Collect portions</Text>
+            <Text style={styles.offerModalSub}>
+              {claimTarget
+                ? `${claimTarget.remainingPortions} of ${claimTarget.portions} portion${claimTarget.portions > 1 ? 's' : ''} left`
+                : ''}
+            </Text>
+
+            <View style={styles.qtyStepperRow}>
+              <TouchableOpacity
+                style={[styles.qtyStepperBtn, claimQuantity <= 1 && styles.qtyStepperBtnDisabled]}
+                onPress={() => setClaimQuantity(q => Math.max(1, q - 1))}
+                disabled={claimQuantity <= 1}
+              >
+                <Ionicons name="remove" size={20} color={claimQuantity <= 1 ? 'rgba(255,255,255,0.2)' : '#fff'} />
+              </TouchableOpacity>
+              <Text style={styles.qtyStepperValue}>{claimQuantity}</Text>
+              <TouchableOpacity
+                style={[styles.qtyStepperBtn, claimQuantity >= (claimTarget?.remainingPortions || 1) && styles.qtyStepperBtnDisabled]}
+                onPress={() => setClaimQuantity(q => Math.min(claimTarget?.remainingPortions || 1, q + 1))}
+                disabled={claimQuantity >= (claimTarget?.remainingPortions || 1)}
+              >
+                <Ionicons name="add" size={20} color={claimQuantity >= (claimTarget?.remainingPortions || 1) ? 'rgba(255,255,255,0.2)' : '#fff'} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.offerModalActions}>
+              <TouchableOpacity
+                style={styles.offerModalCancel}
+                onPress={() => setClaimModal(false)}
+                disabled={claimSubmitting}
+              >
+                <Text style={styles.offerModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.offerModalSubmit}
+                onPress={submitClaim}
+                disabled={claimSubmitting}
+              >
+                <LinearGradient
+                  colors={['#2ed573', '#7bed9f']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.offerModalSubmitGrad}
+                >
+                  {claimSubmitting
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Text style={styles.offerModalSubmitText}>{`Collect ${claimQuantity}`}</Text>}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 <Modal visible={detailModal} animationType="slide" presentationStyle="pageSheet">
   <View style={styles.modal}>
     <SafeAreaView style={{ flex: 1 }} edges={['top']}>
@@ -1200,7 +1280,7 @@ const handleMarkOutOfStock = async (postId) => {
                   onPress={() => {
                     setDetailModal(false);
                     if (detailPost.type === 'share') {
-                      handleClaim(detailPost._id);
+                      handleClaim(detailPost);
                     } else {
                       handleOffer(detailPost._id);
                     }
@@ -1697,6 +1777,18 @@ offerModalInput: {
   borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   marginBottom: 18,
 },
+qtyStepperRow: {
+  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24,
+  marginBottom: 22,
+},
+qtyStepperBtn: {
+  width: 44, height: 44, borderRadius: 22,
+  backgroundColor: 'rgba(255,255,255,0.08)',
+  borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+  alignItems: 'center', justifyContent: 'center',
+},
+qtyStepperBtnDisabled: { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' },
+qtyStepperValue: { fontSize: 28, fontWeight: '800', color: '#fff', minWidth: 40, textAlign: 'center' },
 offerModalActions: { flexDirection: 'row', gap: 12 },
 offerModalCancel: {
   flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center',

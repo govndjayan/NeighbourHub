@@ -6,7 +6,7 @@ import { BASE_URL } from '../../constants/config';
 
 
 
-import { getFoodPosts, createFoodPost, claimFood, offerFood, uploadImage, getFoodOffers, acceptOffer, markFoodOutOfStock, commentOnOffer } from '../../services/api';
+import { getFoodPosts, createFoodPost, updateFoodPost, deleteFoodPost, claimFood, offerFood, uploadImage, getFoodOffers, acceptOffer, markFoodOutOfStock, commentOnOffer } from '../../services/api';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, RefreshControl, Modal, TextInput, Alert, Animated, Dimensions, Image,
@@ -170,6 +170,12 @@ const [threadSending, setThreadSending] = useState(false);
 const socketRef = useRef(null);
 const [detailModal, setDetailModal] = useState(false);
 const [detailPost, setDetailPost] = useState(null);
+// Set when the create modal is repurposed to edit an existing post/request
+const [editingId, setEditingId] = useState(null);
+// Always-fresh ref so the socket listeners (set up once on mount) can see
+// the current user without needing to reconnect the socket.
+const userRef = useRef(user);
+useEffect(() => { userRef.current = user; }, [user]);
 
 const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'requests'
   const [showMine, setShowMine] = useState(false); // filter current tab to my own items
@@ -214,6 +220,15 @@ const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'request
 
   // Listen for offer accepted
   socketRef.current.on('offer_accepted', (updatedPost) => {
+    // Once a helper is chosen, the request becomes private to the poster and
+    // the chosen helper — everyone else should have it drop out of their feed.
+    const me = userRef.current?._id;
+    const isPoster = (updatedPost.postedBy?._id || updatedPost.postedBy) === me;
+    const isChosenHelper = (updatedPost.selectedOffer?._id || updatedPost.selectedOffer) === me;
+    if (!isPoster && !isChosenHelper) {
+      setRequestPosts(prev => prev.filter(post => post._id !== updatedPost._id));
+      return;
+    }
     setRequestPosts(prev =>
       prev.map(post => post._id === updatedPost._id ? updatedPost : post)
     );
@@ -227,6 +242,19 @@ const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'request
       }
       return prev;
     });
+  });
+  // Listen for a post/request being edited
+  socketRef.current.on('food_edited', (updatedPost) => {
+    if (updatedPost.type === 'share') {
+      setSharePosts(prev => prev.map(p => p._id === updatedPost._id ? updatedPost : p));
+    } else {
+      setRequestPosts(prev => prev.map(p => p._id === updatedPost._id ? updatedPost : p));
+    }
+  });
+  // Listen for a post/request being deleted
+  socketRef.current.on('food_deleted', ({ _id }) => {
+    setSharePosts(prev => prev.filter(p => p._id !== _id));
+    setRequestPosts(prev => prev.filter(p => p._id !== _id));
   });
 
   // Listen for a new coordination-thread message
@@ -279,6 +307,19 @@ const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'request
 const resetForm = () => {
   setTitle(''); setDescription(''); setPortions('1');
   setCategory(''); setPreferences(''); setImage(null);
+  setEditingId(null);
+};
+
+// Prefill the create modal with an existing post/request and switch it into edit mode
+const handleEditPost = (post) => {
+  setTitle(post.title || '');
+  setDescription(post.description || '');
+  setPortions(String(post.portions || 1));
+  setCategory(post.category || '');
+  setPreferences(post.preferences || '');
+  setImage(post.photo || null);
+  setEditingId(post._id);
+  setModalType(post.type);
 };
 
 const handleSubmit = async () => {
@@ -287,13 +328,12 @@ const handleSubmit = async () => {
     return;
   }
   setSubmitting(true);
-      let photoUrl = null;
+      let photoUrl = image;
 
   try {
 
-
-    // Upload image to Cloudinary if selected
-if (image) {
+    // Upload image to Cloudinary only if a new local photo was picked
+if (image && image.startsWith('file')) {
   try {
     setUploading(true);
     photoUrl = await uploadImage(image);
@@ -305,19 +345,30 @@ if (image) {
     Alert.alert('Warning', 'Could not upload image, posting without photo');
   }
 }
-    console.log('CREATING POST WITH PHOTO:', photoUrl);
-    await createFoodPost({
-      type: modalType,
-      title,
-      description,
-      category: category || undefined,
-      portions: parseInt(portions),
-      preferences,
-      photo: photoUrl,
-      availableTill: new Date(Date.now() + 8 * 60 * 60 * 1000),
-    });
-
-    Alert.alert('Success', modalType === 'share' ? 'Food post shared!' : 'Request posted!');
+    if (editingId) {
+      await updateFoodPost(editingId, {
+        title,
+        description,
+        category: category || undefined,
+        portions: parseInt(portions),
+        preferences,
+        photo: photoUrl,
+      });
+      Alert.alert('Success', 'Changes saved!');
+    } else {
+      console.log('CREATING POST WITH PHOTO:', photoUrl);
+      await createFoodPost({
+        type: modalType,
+        title,
+        description,
+        category: category || undefined,
+        portions: parseInt(portions),
+        preferences,
+        photo: photoUrl,
+        availableTill: new Date(Date.now() + 8 * 60 * 60 * 1000),
+      });
+      Alert.alert('Success', modalType === 'share' ? 'Food post shared!' : 'Request posted!');
+    }
     setModalType(null);
     resetForm();
     fetchFoodPosts();
@@ -326,6 +377,39 @@ if (image) {
   } finally {
     setSubmitting(false);
   }
+};
+
+const handleDeletePost = (post) => {
+  // A helper who already accepted (and hasn't marked it fulfilled yet) is
+  // mid-coordination — make sure the poster knows deleting cuts that off.
+  const acceptedOffer = post.offers?.find(o => o.isSelected);
+  const hasActiveHelper = post.type === 'request' && post.selectedOffer && !acceptedOffer?.fulfilled;
+
+  Alert.alert(
+    post.type === 'share' ? 'Delete this post?' : 'Delete this request?',
+    hasActiveHelper
+      ? `${post.selectedOffer?.name || 'A neighbour'} has already agreed to help with this request. Deleting it now will end that coordination. This cannot be undone.`
+      : 'This cannot be undone.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteFoodPost(post._id);
+            if (post.type === 'share') {
+              setSharePosts(prev => prev.filter(p => p._id !== post._id));
+            } else {
+              setRequestPosts(prev => prev.filter(p => p._id !== post._id));
+            }
+          } catch (error) {
+            Alert.alert('Error', error.response?.data?.message || 'Could not delete');
+          }
+        }
+      }
+    ]
+  );
 };
 
   const handleClaim = async (postId) => {
@@ -650,7 +734,11 @@ const handleMarkOutOfStock = async (postId) => {
         <View style={styles.modal}>
           <SafeAreaView style={{ flex: 1 }} edges={['top']}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{modalType === 'share' ? '🍱 Share Food' : '🙋 Request Food'}</Text>
+              <Text style={styles.modalTitle}>
+                {editingId
+                  ? (modalType === 'share' ? '✏️ Edit Post' : '✏️ Edit Request')
+                  : (modalType === 'share' ? '🍱 Share Food' : '🙋 Request Food')}
+              </Text>
               <TouchableOpacity onPress={() => { setModalType(null); resetForm(); }} style={styles.closeBtn}>
                 <Ionicons name="close" size={20} color="rgba(255,255,255,0.8)" />
               </TouchableOpacity>
@@ -716,7 +804,7 @@ const handleMarkOutOfStock = async (postId) => {
       ? uploading
         ? <Text style={styles.submitBtnText}>Uploading photo... ☁️</Text>
         : <ActivityIndicator color="#fff" />
-      : <Text style={styles.submitBtnText}>{modalType === 'share' ? 'Share Now' : 'Post Request'}</Text>
+      : <Text style={styles.submitBtnText}>{editingId ? 'Save Changes' : (modalType === 'share' ? 'Share Now' : 'Post Request')}</Text>
     }
   </LinearGradient>
 </TouchableOpacity>
@@ -1161,6 +1249,32 @@ const handleMarkOutOfStock = async (postId) => {
     <Text style={styles.outOfStockText}>Mark as Out of Stock</Text>
   </TouchableOpacity>
 )}
+
+            {/* Edit / Delete — only for the person who posted it */}
+            {detailPost.postedBy?._id === user?._id && (
+              <View style={styles.ownerActionsRow}>
+                <TouchableOpacity
+                  style={styles.editBtn}
+                  onPress={() => {
+                    setDetailModal(false);
+                    handleEditPost(detailPost);
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#6c63ff" />
+                  <Text style={styles.editBtnText}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteBtn}
+                  onPress={() => {
+                    setDetailModal(false);
+                    handleDeletePost(detailPost);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#ff4757" />
+                  <Text style={styles.deleteBtnText}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </>
         )}
       </ScrollView>
@@ -1485,6 +1599,25 @@ outOfStockBtn: {
   marginTop: 10, marginBottom: 40,
 },
 outOfStockText: { fontSize: 14, color: '#ff4757', fontWeight: '700' },
+
+// Owner actions — edit / delete (shown to whoever posted the item)
+ownerActionsRow: { flexDirection: 'row', gap: 10, marginTop: 10, marginBottom: 40 },
+editBtn: {
+  flex: 1, flexDirection: 'row', alignItems: 'center',
+  justifyContent: 'center', gap: 8,
+  backgroundColor: 'rgba(108,99,255,0.12)',
+  borderWidth: 1, borderColor: 'rgba(108,99,255,0.25)',
+  borderRadius: 14, padding: 14,
+},
+editBtnText: { fontSize: 14, color: '#6c63ff', fontWeight: '700' },
+deleteBtn: {
+  flex: 1, flexDirection: 'row', alignItems: 'center',
+  justifyContent: 'center', gap: 8,
+  backgroundColor: 'rgba(255,71,87,0.12)',
+  borderWidth: 1, borderColor: 'rgba(255,71,87,0.25)',
+  borderRadius: 14, padding: 14,
+},
+deleteBtnText: { fontSize: 14, color: '#ff4757', fontWeight: '700' },
 
 // Offer card (pre-accept list) + optional note
 offerCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },

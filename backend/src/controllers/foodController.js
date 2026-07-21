@@ -9,6 +9,15 @@ exports.getFoodPosts = async (req, res) => {
     const query = { status: 'active' };
     if (type) query.type = type;
 
+    // A request with an accepted helper becomes private to the poster and
+    // the chosen helper — everyone else's feed should no longer show it.
+    query.$or = [
+      { selectedOffer: { $exists: false } },
+      { selectedOffer: null },
+      { postedBy: req.user._id },
+      { selectedOffer: req.user._id },
+    ];
+
     const posts = await Food.find(query)
       .populate('postedBy', 'name houseNo initials avatarColor')
       .populate('claimedBy.user', 'name houseNo initials avatarColor')
@@ -137,6 +146,18 @@ exports.getFoodOffers = async (req, res) => {
       .populate('offers.user', 'name houseNo block initials avatarColor')
       .populate('offers.comments.user', 'name houseNo initials avatarColor');
     if (!post) return res.status(404).json({ message: 'Post not found' });
+
+    // Once a helper is chosen, this becomes a private thread between the
+    // poster and the chosen helper only.
+    if (post.selectedOffer) {
+      const meId = req.user._id.toString();
+      const isOwner = post.postedBy.toString() === meId;
+      const isChosenHelper = post.selectedOffer.toString() === meId;
+      if (!isOwner && !isChosenHelper) {
+        return res.status(403).json({ message: 'You cannot view this' });
+      }
+    }
+
     res.json({ success: true, offers: post.offers, selectedOffer: post.selectedOffer });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -329,6 +350,61 @@ exports.commentOnOffer = async (req, res) => {
 
     req.io.emit('offer_comment', { postId: post._id, offerId: offer._id, post });
     res.json({ success: true, post });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @route PUT /api/food/:id
+// Edit a post/request — only the original poster may edit.
+exports.updateFoodPost = async (req, res) => {
+  try {
+    const post = await Food.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: 'Post not found' });
+    if (post.postedBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the poster can edit this' });
+    }
+
+    const { title, description, category, preferences, portions, photo } = req.body;
+    if (title !== undefined) post.title = title;
+    if (description !== undefined) post.description = description;
+    if (category !== undefined) post.category = category || undefined;
+    if (preferences !== undefined) post.preferences = preferences;
+    if (photo !== undefined) post.photo = photo;
+    if (portions !== undefined) {
+      // Keep remainingPortions in sync when the total changes
+      const claimed = post.portions - post.remainingPortions;
+      post.portions = portions;
+      post.remainingPortions = Math.max(0, portions - claimed);
+    }
+
+    await post.save();
+    await post.populate('postedBy', 'name houseNo initials avatarColor');
+    await post.populate('claimedBy.user', 'name houseNo initials avatarColor');
+    await post.populate('offers.user', 'name houseNo initials avatarColor');
+    await post.populate('offers.comments.user', 'name houseNo initials avatarColor');
+    await post.populate('selectedOffer', 'name houseNo initials avatarColor');
+
+    req.io.emit('food_edited', post);
+    res.json({ success: true, post });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @route DELETE /api/food/:id
+// Delete a post/request — only the original poster may delete.
+exports.deleteFoodPost = async (req, res) => {
+  try {
+    const post = await Food.findById(req.params.id);
+    if (!post) return res.status(404).json({ message: 'Post not found' });
+    if (post.postedBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the poster can delete this' });
+    }
+
+    await post.deleteOne();
+    req.io.emit('food_deleted', { _id: req.params.id, type: post.type });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

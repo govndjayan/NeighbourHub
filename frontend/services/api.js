@@ -34,6 +34,8 @@ export const updateAnnouncement = (id, data) => api.put(`/announcements/${id}`, 
 // Food
 export const getFoodPosts = (type) => api.get(`/food${type ? `?type=${type}` : ''}`);
 export const createFoodPost = (data) => api.post('/food', data);
+export const updateFoodPost = (id, data) => api.put(`/food/${id}`, data);
+export const deleteFoodPost = (id) => api.delete(`/food/${id}`);
 export const claimFood = (id, data) => api.post(`/food/${id}/claim`, data);
 export const offerFood = (id, data) => api.post(`/food/${id}/offer`, data);
 export const getFoodOffers = (id) => api.get(`/food/${id}/offers`);

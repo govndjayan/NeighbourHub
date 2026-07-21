@@ -175,22 +175,23 @@ exports.acceptOffer = async (req, res) => {
       return res.status(403).json({ message: 'Only the requester can accept offers' });
     }
 
-    // Find the offer being accepted (before we rebuild the array)
+    // Find the offer being accepted
     const acceptedOffer = post.offers.find(o => o._id.toString() === offerId);
     if (!acceptedOffer) {
       return res.status(404).json({ message: 'Offer not found' });
     }
     const acceptedUserId = acceptedOffer.user?._id || acceptedOffer.user;
 
+    // Mark it selected by mutating the live subdocument directly (reliably
+    // tracked by Mongoose) rather than rebuilding the array via toObject() —
+    // that rebuild silently failed to persist isSelected on save, which broke
+    // the coordination thread lookup (comments would post but never show).
+    acceptedOffer.isSelected = true;
     // Keep ONLY the accepted offer — the rest dissolve. The chosen offer's
     // comment thread stays alive so the two users can coordinate.
-    post.offers = post.offers
-      .filter(offer => offer._id.toString() === offerId)
-      .map(offer => {
-        const o = offer.toObject();
-        o.isSelected = true;
-        return o;
-      });
+    post.offers
+      .filter(offer => offer._id.toString() !== offerId)
+      .forEach(offer => post.offers.pull(offer._id));
     post.selectedOffer = acceptedUserId;
     // NOTE: keep status 'active' so the request stays reachable for both users
     // to coordinate; it closes when the helper marks the commitment fulfilled.

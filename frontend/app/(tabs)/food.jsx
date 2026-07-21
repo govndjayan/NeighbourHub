@@ -21,7 +21,59 @@ import { useAuth } from '../../context/AuthContext';
 const { width } = Dimensions.get('window');
 const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'];
 
- const FoodCard = ({ item, type, user, getTimeAgo, handleClaim, handleOffer, handleViewOffers, handleViewDetail, handleMarkOutOfStock }) => (
+// Instagram/Messenger-style comment bubbles + composer, reused inline on a
+// card and inside the request detail modal — one implementation, two spots.
+const ThreadPanel = ({ loading, comments, currentUserId, inputValue, onChangeInput, onSend, sending }) => (
+  <View style={styles.threadPanel} onStartShouldSetResponder={() => true}>
+    {loading ? (
+      <ActivityIndicator color="#6c63ff" style={{ paddingVertical: 16 }} />
+    ) : (
+      <>
+        <ScrollView style={styles.threadPanelScroll} contentContainerStyle={{ paddingVertical: 8 }}>
+          {comments.length === 0 ? (
+            <Text style={styles.threadHint}>Say hello to coordinate the pickup 👋</Text>
+          ) : (
+            comments.map((c, i) => {
+              const cid = c.user?._id || c.user;
+              const mine = cid && currentUserId && cid.toString() === currentUserId.toString();
+              return (
+                <View key={i} style={[styles.threadRow, mine ? styles.threadRowMine : styles.threadRowOther]}>
+                  <View style={[styles.threadBubble, mine ? styles.threadBubbleMine : styles.threadBubbleOther]}>
+                    {!mine && <Text style={styles.threadAuthor}>{c.user?.name || 'Helper'}</Text>}
+                    <Text style={styles.threadText}>{c.text}</Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
+        <View style={styles.threadPanelInputRow}>
+          <TextInput
+            style={styles.threadPanelInput}
+            placeholder="Type a message..."
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            value={inputValue}
+            onChangeText={onChangeInput}
+            multiline
+          />
+          <TouchableOpacity
+            style={styles.threadPanelSendBtn}
+            onPress={onSend}
+            disabled={sending || !inputValue.trim()}
+          >
+            {sending
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Ionicons name="send" size={16} color="#fff" />}
+          </TouchableOpacity>
+        </View>
+      </>
+    )}
+  </View>
+);
+
+ const FoodCard = ({
+   item, type, user, getTimeAgo, handleClaim, handleOffer, handleViewOffers, handleViewDetail, handleMarkOutOfStock,
+ }) => (
   <TouchableOpacity onPress={() => handleViewDetail(item)} activeOpacity={0.85}>
     <View style={styles.card}>
       <View style={[styles.cardAccent, { backgroundColor: type === 'share' ? '#2ed573' : '#f5576c' }]} />
@@ -85,18 +137,12 @@ const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'];
           {/* Collect / Offer help — only for other users' posts */}
           {item.postedBy?._id !== user?._id ? (
             type === 'request' && item.selectedOffer ? (
-              // A helper has already been chosen for this request.
-              // If it's ME, give me a way into the coordination thread.
-              // If it's someone else, offers are closed — nothing to show.
+              // A helper has already been chosen. If it's ME, a compact
+              // "Coordinate" button opens the detail window with the chat.
               item.selectedOffer?._id === user?._id ? (
-                <TouchableOpacity
-                  style={styles.chatHelperBtn}
-                  onPress={() => handleViewOffers(item)}
-                >
+                <TouchableOpacity style={styles.coordinateBtn} onPress={() => handleViewDetail(item)}>
                   <Ionicons name="chatbubble-ellipses" size={13} color="#fff" />
-                  <Text style={styles.viewOffersBtnText}>
-                    {'Chat with ' + (item.postedBy?.name || 'requester')}
-                  </Text>
+                  <Text style={styles.coordinateBtnText}>Coordinate</Text>
                 </TouchableOpacity>
               ) : null
             ) : (
@@ -111,16 +157,11 @@ const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'];
             )
           ) : null}
 
-          {/* Poster of a request: chat with chosen helper, or view pending offers */}
+          {/* Poster of a request: coordinate with the accepted helper, or view pending offers */}
           {type === 'request' && item.postedBy?._id === user?._id && item.selectedOffer ? (
-            <TouchableOpacity
-              style={styles.chatHelperBtn}
-              onPress={() => handleViewOffers(item)}
-            >
+            <TouchableOpacity style={styles.coordinateBtn} onPress={() => handleViewDetail(item)}>
               <Ionicons name="chatbubble-ellipses" size={13} color="#fff" />
-              <Text style={styles.viewOffersBtnText}>
-                {'Chat with ' + (item.selectedOffer?.name || 'helper')}
-              </Text>
+              <Text style={styles.coordinateBtnText}>Coordinate</Text>
             </TouchableOpacity>
           ) : type === 'request' && item.postedBy?._id === user?._id && item.offers?.length > 0 ? (
             <TouchableOpacity
@@ -164,9 +205,13 @@ const [offerModal, setOfferModal] = useState(false);
 const [offerTargetId, setOfferTargetId] = useState(null);
 const [offerComment, setOfferComment] = useState('');
 const [offerSubmitting, setOfferSubmitting] = useState(false);
-// Live coordination thread input
-const [threadInput, setThreadInput] = useState('');
-const [threadSending, setThreadSending] = useState(false);
+// Live coordination thread — always visible on an accepted request's card
+// (no separate "message helper" click). Keyed by food post id since several
+// accepted requests can have their threads showing at once.
+const [threads, setThreads] = useState({}); // { [postId]: { comments, offerId, loading, input, sending } }
+const threadsRef = useRef(threads);
+useEffect(() => { threadsRef.current = threads; }, [threads]);
+const loadedThreadIdsRef = useRef(new Set());
 const socketRef = useRef(null);
 const [detailModal, setDetailModal] = useState(false);
 const [detailPost, setDetailPost] = useState(null);
@@ -232,16 +277,6 @@ const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'request
     setRequestPosts(prev =>
       prev.map(post => post._id === updatedPost._id ? updatedPost : post)
     );
-    // If we're viewing this request's offers, refresh the modal too — keep
-    // postOffers in sync with selectedPost so the thread doesn't get stuck
-    // showing the stale "pending offers" list after acceptance.
-    setSelectedPost(prev => {
-      if (prev && prev._id === updatedPost._id) {
-        setPostOffers(updatedPost.offers || []);
-        return updatedPost;
-      }
-      return prev;
-    });
   });
   // Listen for a post/request being edited
   socketRef.current.on('food_edited', (updatedPost) => {
@@ -262,12 +297,12 @@ const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'request
     setRequestPosts(prev =>
       prev.map(post => post._id === updatedPost._id ? updatedPost : post)
     );
-    setSelectedPost(prev => {
-      if (prev && prev._id === postId) {
-        setPostOffers(updatedPost.offers || []);
-        return updatedPost;
-      }
-      return prev;
+    // Keep the always-visible comment panel live for this request's thread
+    const pid = postId?.toString?.() || postId;
+    setThreads(prev => {
+      if (!prev[pid]) return prev;
+      const accepted = (updatedPost.offers || []).find(o => o.isSelected) || updatedPost.offers?.[0];
+      return { ...prev, [pid]: { ...prev[pid], comments: accepted?.comments || [] } };
     });
   });
   // Food updated
@@ -382,7 +417,7 @@ if (image && image.startsWith('file')) {
 const handleDeletePost = (post) => {
   // A helper who already accepted (and hasn't marked it fulfilled yet) is
   // mid-coordination — make sure the poster knows deleting cuts that off.
-  const acceptedOffer = post.offers?.find(o => o.isSelected);
+  const acceptedOffer = post.offers?.find(o => o.isSelected) || post.offers?.[0];
   const hasActiveHelper = post.type === 'request' && post.selectedOffer && !acceptedOffer?.fulfilled;
 
   Alert.alert(
@@ -447,34 +482,60 @@ const handleDeletePost = (post) => {
     }
   };
 
-  // Post a message into the accepted offer's live coordination thread
-  const sendThreadComment = async () => {
-    const text = threadInput.trim();
-    if (!text || !selectedPost) return;
-    const acceptedOffer = (postOffers || []).find(o => o.isSelected) || postOffers[0];
-    if (!acceptedOffer?._id) return;
-    setThreadSending(true);
+  // Load an accepted request's coordination thread (idempotent — safe to
+  // call repeatedly, it only fetches once per post).
+  const loadThread = useCallback(async (postId) => {
+    if (loadedThreadIdsRef.current.has(postId)) return;
+    loadedThreadIdsRef.current.add(postId);
+    setThreads(prev => ({ ...prev, [postId]: { comments: [], offerId: null, loading: true, input: '', sending: false } }));
     try {
-      const res = await commentOnOffer(selectedPost._id, acceptedOffer._id, text);
-      const updated = res.data.post;
-      setSelectedPost(updated);
-      setPostOffers(updated.offers || []);
-      setThreadInput('');
+      const res = await getFoodOffers(postId);
+      const accepted = (res.data.offers || []).find(o => o.isSelected) || res.data.offers?.[0];
+      setThreads(prev => ({
+        ...prev,
+        [postId]: { ...(prev[postId] || {}), comments: accepted?.comments || [], offerId: accepted?._id || null, loading: false },
+      }));
     } catch (error) {
-      // Keep full detail in the console for troubleshooting; show the user
-      // a clean message (the server's reason when it gives one).
-      console.log('Error sending thread comment:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        message: error.message,
-        postId: selectedPost?._id,
-        offerId: acceptedOffer?._id,
+      loadedThreadIdsRef.current.delete(postId);
+      setThreads(prev => {
+        const next = { ...prev };
+        delete next[postId];
+        return next;
       });
-      Alert.alert('Error', error.response?.data?.message || 'Could not send message. Please try again.');
-    } finally {
-      setThreadSending(false);
     }
-  };
+  }, []);
+
+  const updateThreadInput = useCallback((postId, text) => {
+    setThreads(prev => ({ ...prev, [postId]: { ...(prev[postId] || {}), input: text } }));
+  }, []);
+
+  // Post a message into the accepted offer's live coordination thread
+  const sendThread = useCallback(async (postId) => {
+    const t = threadsRef.current[postId];
+    const text = (t?.input || '').trim();
+    if (!text || !t?.offerId) return;
+    setThreads(prev => ({ ...prev, [postId]: { ...prev[postId], sending: true } }));
+    try {
+      const res = await commentOnOffer(postId, t.offerId, text);
+      const accepted = (res.data.post?.offers || []).find(o => o.isSelected) || res.data.post?.offers?.[0];
+      setThreads(prev => ({ ...prev, [postId]: { ...prev[postId], comments: accepted?.comments || [], input: '', sending: false } }));
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.message || 'Could not send message. Please try again.');
+      setThreads(prev => ({ ...prev, [postId]: { ...prev[postId], sending: false } }));
+    }
+  }, []);
+
+  // Auto-load the thread for every request that now has an accepted helper
+  // (either side of the deal) so the comment box is already populated —
+  // nothing to click to reveal it.
+  useEffect(() => {
+    requestPosts
+      .filter(p => p.selectedOffer && (
+        (p.selectedOffer?._id || p.selectedOffer) === user?._id ||
+        (p.postedBy?._id || p.postedBy) === user?._id
+      ))
+      .forEach(p => loadThread(p._id));
+  }, [requestPosts, user?._id, loadThread]);
   const handleViewDetail = (post) => {
   setDetailPost(post);
   setDetailModal(true);
@@ -566,12 +627,8 @@ const handleAcceptOffer = async (offerId) => {
         onPress: async () => {
           try {
             await acceptOffer(selectedPost._id, offerId);
-            Alert.alert('Success', 'Offer accepted! You can now coordinate directly.');
-            // Reload offers so the modal switches to the live coordination thread
-            try {
-              const res = await getFoodOffers(selectedPost._id);
-              setPostOffers(res.data.offers);
-            } catch (e) {}
+            setOffersModal(false);
+            Alert.alert('Success', 'Offer accepted! Tap the card to coordinate.');
             fetchFoodPosts();
           } catch (error) {
             Alert.alert('Error', error.response?.data?.message || 'Could not accept offer');
@@ -615,7 +672,17 @@ const handleMarkOutOfStock = async (postId) => {
   // Apply the "My" filter to whichever sub-tab is active
   const mine = (p) => (p.postedBy?._id || p.postedBy) === user?._id;
   const visibleShares = showMine ? sharePosts.filter(mine) : sharePosts;
-  const visibleRequests = showMine ? requestPosts.filter(mine) : requestPosts;
+
+  // Requests with an accepted helper surface in their own highlighted
+  // section — pulled out of the regular list entirely so they don't sit
+  // lost among open requests. Same treatment for both sides of the deal:
+  // the helper who got accepted, and the poster who accepted someone.
+  const iAmAcceptedHelper = (p) => (p.selectedOffer?._id || p.selectedOffer) === user?._id;
+  const iPostedWithHelper = (p) => mine(p) && !!p.selectedOffer;
+  const acceptedHelpRequests = requestPosts.filter(iAmAcceptedHelper);
+  const myAcceptedRequests = requestPosts.filter(iPostedWithHelper);
+  const regularRequests = requestPosts.filter(p => !iAmAcceptedHelper(p) && !iPostedWithHelper(p));
+  const visibleRequests = showMine ? regularRequests.filter(mine) : regularRequests;
 
   return (
     <SwipeWrapper>
@@ -673,6 +740,28 @@ const handleMarkOutOfStock = async (postId) => {
   <ActivityIndicator color="#f5576c" style={{ marginTop: 40 }} />
 ) : (
   <>
+{activeSubTab === 'requests' && myAcceptedRequests.length > 0 && (
+  <>
+    <View style={styles.sectionHeader}>
+      <Text style={[styles.sectionTitle, styles.acceptedSectionTitle]}>🤝 Helper accepted</Text>
+      <Text style={styles.sectionCount}>{`${myAcceptedRequests.length} active`}</Text>
+    </View>
+    {myAcceptedRequests.map(item => (
+      <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
+    ))}
+  </>
+)}
+{activeSubTab === 'requests' && acceptedHelpRequests.length > 0 && (
+  <>
+    <View style={styles.sectionHeader}>
+      <Text style={[styles.sectionTitle, styles.acceptedSectionTitle]}>✅ Accepted your offer</Text>
+      <Text style={styles.sectionCount}>{`${acceptedHelpRequests.length} active`}</Text>
+    </View>
+    {acceptedHelpRequests.map(item => (
+      <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
+    ))}
+  </>
+)}
 <View style={styles.sectionHeader}>
   <Text style={styles.sectionTitle}>
     {activeSubTab === 'posts'
@@ -822,24 +911,14 @@ const handleMarkOutOfStock = async (postId) => {
         </TouchableOpacity>
       </View>
 
-      {selectedPost && (() => {
-        const accepted = (postOffers || []).find(o => o.isSelected);
-        // Show the OTHER party in the conversation, not myself — I might be
-        // viewing this as the poster (other party = helper) or as the
-        // accepted helper (other party = the poster).
-        const iAmPoster = (selectedPost.postedBy?._id || selectedPost.postedBy) === user?._id;
-        const otherParty = accepted ? (iAmPoster ? accepted.user : selectedPost.postedBy) : null;
-        return (
-          <View style={styles.offerRequestInfo}>
-            <Text style={styles.offerRequestTitle}>{selectedPost.title}</Text>
-            <Text style={styles.offerRequestSub}>
-              {accepted
-                ? `Coordinating with ${otherParty?.name || 'the other person'}`
-                : `${postOffers.length} ${postOffers.length === 1 ? 'person' : 'people'} offered to help`}
-            </Text>
-          </View>
-        );
-      })()}
+      {selectedPost && (
+        <View style={styles.offerRequestInfo}>
+          <Text style={styles.offerRequestTitle}>{selectedPost.title}</Text>
+          <Text style={styles.offerRequestSub}>
+            {`${postOffers.length} ${postOffers.length === 1 ? 'person' : 'people'} offered to help`}
+          </Text>
+        </View>
+      )}
 
       {loadingOffers ? (
         <ActivityIndicator color="#6c63ff" style={{ marginTop: 40 }} />
@@ -848,73 +927,6 @@ const handleMarkOutOfStock = async (postId) => {
           <Ionicons name="hand-left-outline" size={32} color="rgba(255,255,255,0.2)" />
           <Text style={styles.emptyText}>No offers yet</Text>
         </View>
-      ) : ((postOffers || []).find(o => o.isSelected)) ? (
-        (() => {
-          const accepted = (postOffers || []).find(o => o.isSelected);
-          const comments = accepted?.comments || [];
-          const iAmPoster = (selectedPost?.postedBy?._id || selectedPost?.postedBy) === user?._id;
-          const otherParty = iAmPoster ? accepted.user : selectedPost?.postedBy;
-          return (
-            <KeyboardAvoidingView
-              style={{ flex: 1 }}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={90}
-            >
-              <View style={styles.threadHelperCard}>
-                <View style={[styles.offerAvatar, { backgroundColor: otherParty?.avatarColor || '#6c63ff' }]}>
-                  <Text style={styles.offerAvatarText}>{otherParty?.initials}</Text>
-                </View>
-                <View style={styles.offerInfo}>
-                  <Text style={styles.offerName}>{otherParty?.name}</Text>
-                  <Text style={styles.offerHouse}>{otherParty?.houseNo}{otherParty?.block ? ` · ${otherParty.block}` : ''}</Text>
-                </View>
-                <View style={styles.acceptedBadge}>
-                  <Ionicons name="checkmark-circle" size={18} color="#2ed573" />
-                  <Text style={styles.acceptedText}>{iAmPoster ? 'Chosen' : 'Requester'}</Text>
-                </View>
-              </View>
-
-              <ScrollView style={styles.threadBody} contentContainerStyle={{ paddingVertical: 12 }}>
-                {comments.length === 0 ? (
-                  <Text style={styles.threadHint}>Say hello to coordinate the pickup 👋</Text>
-                ) : (
-                  comments.map((c, i) => {
-                    const cid = c.user?._id || c.user;
-                    const mine = cid && user?._id && cid.toString() === user._id.toString();
-                    return (
-                      <View key={i} style={[styles.threadRow, mine ? styles.threadRowMine : styles.threadRowOther]}>
-                        <View style={[styles.threadBubble, mine ? styles.threadBubbleMine : styles.threadBubbleOther]}>
-                          {!mine && <Text style={styles.threadAuthor}>{c.user?.name || 'Helper'}</Text>}
-                          <Text style={styles.threadText}>{c.text}</Text>
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
-              </ScrollView>
-
-              <View style={styles.threadInputBar}>
-                <TextInput
-                  style={styles.threadTextInput}
-                  placeholder="Type a message..."
-                  placeholderTextColor="rgba(255,255,255,0.4)"
-                  value={threadInput}
-                  onChangeText={setThreadInput}
-                  multiline
-                />
-                <TouchableOpacity
-                  style={styles.threadSendBtn}
-                  onPress={sendThreadComment}
-                  disabled={threadSending || !threadInput.trim()}
-                >
-                  {threadSending
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Ionicons name="send" size={18} color="#fff" />}
-                </TouchableOpacity>
-              </View>
-            </KeyboardAvoidingView>
-          );
-        })()
       ) : (
         <ScrollView style={styles.modalBody}>
           {postOffers.map((offer, i) => (
@@ -1163,7 +1175,9 @@ const handleMarkOutOfStock = async (postId) => {
                     </View>
                   ))
                 )}
-                {detailPost.offers?.length > 0 && (
+                {/* "Choose a helper" only — once accepted, the coordination
+                    thread below is already visible, nothing to click */}
+                {detailPost.offers?.length > 0 && !detailPost.selectedOffer && (
                   <TouchableOpacity
                     style={styles.detailViewOffersBtn}
                     onPress={() => {
@@ -1171,17 +1185,8 @@ const handleMarkOutOfStock = async (postId) => {
                       handleViewOffers(detailPost);
                     }}
                   >
-                    {detailPost.selectedOffer ? (
-                      <>
-                        <Ionicons name="chatbubble-ellipses" size={16} color="#6c63ff" />
-                        <Text style={styles.detailViewOffersText}>Message helper</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={styles.detailViewOffersText}>Choose a helper</Text>
-                        <Ionicons name="arrow-forward" size={16} color="#6c63ff" />
-                      </>
-                    )}
+                    <Text style={styles.detailViewOffersText}>Choose a helper</Text>
+                    <Ionicons name="arrow-forward" size={16} color="#6c63ff" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -1189,29 +1194,7 @@ const handleMarkOutOfStock = async (postId) => {
 
             {/* Action button */}
             {detailPost.postedBy?._id !== user?._id && (
-              detailPost.type === 'request' && detailPost.selectedOffer ? (
-                // Offers are closed. If I'm the chosen helper, let me into the thread.
-                detailPost.selectedOffer?._id === user?._id ? (
-                  <TouchableOpacity
-                    style={styles.detailActionBtn}
-                    onPress={() => {
-                      setDetailModal(false);
-                      handleViewOffers(detailPost);
-                    }}
-                  >
-                    <LinearGradient
-                      colors={['#6c63ff', '#a78bfa']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.detailActionGrad}
-                    >
-                      <Text style={styles.detailActionText}>
-                        {'Chat with ' + (detailPost.postedBy?.name || 'requester')}
-                      </Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ) : null
-              ) : (
+              detailPost.type === 'request' && detailPost.selectedOffer ? null : (
                 <TouchableOpacity
                   style={styles.detailActionBtn}
                   onPress={() => {
@@ -1236,6 +1219,25 @@ const handleMarkOutOfStock = async (postId) => {
                 </TouchableOpacity>
               )
             )}
+
+            {/* Inline coordination thread — always visible once a helper is
+                accepted, either as poster or as the accepted helper */}
+            {detailPost.type === 'request' && detailPost.selectedOffer &&
+              (detailPost.selectedOffer?._id === user?._id || detailPost.postedBy?._id === user?._id) && (() => {
+              const t = threads[detailPost._id];
+              return (
+                <ThreadPanel
+                  loading={!t || t.loading}
+                  comments={t?.comments || []}
+                  currentUserId={user?._id}
+                  inputValue={t?.input || ''}
+                  onChangeInput={(text) => updateThreadInput(detailPost._id, text)}
+                  onSend={() => sendThread(detailPost._id)}
+                  sending={!!t?.sending}
+                />
+              );
+            })()}
+
             {/* Out of stock — only for poster */}
 {detailPost.type === 'share' && detailPost.postedBy?._id === user?._id && (
   <TouchableOpacity
@@ -1306,6 +1308,7 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10, marginTop: 8 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#fff' },
   sectionCount: { fontSize: 12, color: '#6c63ff', fontWeight: '600' },
+  acceptedSectionTitle: { color: '#2ed573' },
   card: { marginHorizontal: 16, marginBottom: 12, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', flexDirection: 'row' },
   cardAccent: { width: 3 },
   cardContent: { flex: 1, padding: 14 },
@@ -1464,10 +1467,11 @@ detailActionBtn: { borderRadius: 14, overflow: 'hidden', marginTop: 8, marginBot
 detailActionGrad: { padding: 16, alignItems: 'center' },
 detailActionText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
-  chatHelperBtn: {
+coordinateBtn: {
   flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-  backgroundColor: '#2ed573', borderRadius: 12, paddingVertical: 10, marginTop: 8,
+  backgroundColor: '#2ed573', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8,
 },
+coordinateBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 viewOffersBtn: {
   flexDirection: 'row', alignItems: 'center', gap: 5,
   backgroundColor: '#6c63ff', paddingHorizontal: 12,
@@ -1629,18 +1633,18 @@ offerNoteBox: {
 },
 offerNoteText: { fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 18 },
 
-// Live coordination thread (post-accept)
-threadHelperCard: {
-  flexDirection: 'row', alignItems: 'center', gap: 12,
-  marginHorizontal: 20, marginTop: 4, marginBottom: 8,
-  backgroundColor: 'rgba(46,213,115,0.05)',
-  borderWidth: 1, borderColor: 'rgba(46,213,115,0.25)',
-  borderRadius: 16, padding: 12,
+// Inline coordination thread — expands within a card / the detail modal
+// (Instagram/Messenger-style comment box, not a separate screen)
+threadPanel: {
+  marginTop: 10,
+  backgroundColor: 'rgba(255,255,255,0.03)',
+  borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+  borderRadius: 14, overflow: 'hidden',
 },
-threadBody: { flex: 1, paddingHorizontal: 20 },
+threadPanelScroll: { maxHeight: 220, paddingHorizontal: 12 },
 threadHint: {
   textAlign: 'center', color: 'rgba(255,255,255,0.35)',
-  fontSize: 13, marginTop: 30,
+  fontSize: 13, paddingVertical: 20,
 },
 threadRow: { flexDirection: 'row', marginBottom: 8 },
 threadRowMine: { justifyContent: 'flex-end' },
@@ -1653,20 +1657,21 @@ threadBubbleOther: {
 },
 threadAuthor: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '700', marginBottom: 2 },
 threadText: { fontSize: 14, color: '#fff', lineHeight: 19 },
-threadInputBar: {
-  flexDirection: 'row', alignItems: 'flex-end', gap: 10,
-  paddingHorizontal: 16, paddingVertical: 10, paddingBottom: 16,
+threadPanelInputRow: {
+  flexDirection: 'row', alignItems: 'flex-end', gap: 8,
+  padding: 10,
   borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.07)',
+  backgroundColor: 'rgba(255,255,255,0.02)',
 },
-threadTextInput: {
-  flex: 1, maxHeight: 100,
+threadPanelInput: {
+  flex: 1, maxHeight: 90,
   backgroundColor: 'rgba(255,255,255,0.06)',
-  borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
-  color: '#fff', fontSize: 14,
+  borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9,
+  color: '#fff', fontSize: 13,
   borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
 },
-threadSendBtn: {
-  width: 44, height: 44, borderRadius: 22,
+threadPanelSendBtn: {
+  width: 38, height: 38, borderRadius: 19,
   backgroundColor: '#6c63ff',
   alignItems: 'center', justifyContent: 'center',
 },

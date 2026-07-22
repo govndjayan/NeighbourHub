@@ -122,7 +122,7 @@ export default function LoginScreen() {
               { transform: [{ translateY: sheetY }], opacity: sheetOpacity }
             ]}>
               <View style={styles.handle} />
-              <Text style={styles.sheetTitle}>Welcome back 👋</Text>
+              <Text style={styles.sheetTitle}>Welcome back </Text>
               <Text style={styles.sheetSub}>Sign in to your community</Text>
 
               {/* Phone input */}

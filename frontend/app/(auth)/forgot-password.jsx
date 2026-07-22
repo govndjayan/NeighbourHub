@@ -14,7 +14,8 @@ import Colors from '../../constants/colors';
 export default function ForgotPasswordScreen() {
   const router = useRouter();
 
-  const [step, setStep] = useState(1);           // 1 = enter email, 2 = enter OTP + new password
+  const [step, setStep] = useState(1);           // 1 = enter phone + email, 2 = enter OTP + new password
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
@@ -49,7 +50,12 @@ export default function ForgotPasswordScreen() {
   const orb2Y = orb2.interpolate({ inputRange: [0, 1], outputRange: [0, -16] });
 
   const handleSendCode = async () => {
+    const trimmedPhone = phone.trim();
     const trimmed = email.trim().toLowerCase();
+    if (trimmedPhone.length !== 10) {
+      Alert.alert('Error', 'Please enter a valid 10-digit phone number');
+      return;
+    }
     const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
     if (!emailOk) {
       Alert.alert('Error', 'Please enter a valid email address');
@@ -57,10 +63,11 @@ export default function ForgotPasswordScreen() {
     }
     setLoading(true);
     try {
-      await forgotPassword({ email: trimmed });
+      await forgotPassword({ phone: trimmedPhone, email: trimmed });
+      setPhone(trimmedPhone);
       setEmail(trimmed);
       setStep(2);
-      Alert.alert('Check your email', 'If an account exists for that email, a 6-digit reset code has been sent. It expires in 10 minutes.');
+      Alert.alert('Check your email', 'If those details match an account, a 6-digit reset code has been sent. It expires in 10 minutes.');
     } catch (err) {
       Alert.alert('Error', err?.response?.data?.message || 'Could not send reset code. Please try again.');
     } finally {
@@ -79,7 +86,7 @@ export default function ForgotPasswordScreen() {
     }
     setLoading(true);
     try {
-      await resetPassword({ email, otp, password });
+      await resetPassword({ phone, email, otp, password });
       Alert.alert('Success', 'Your password has been reset. Please sign in.', [
         { text: 'OK', onPress: () => router.replace('/(auth)/login') },
       ]);
@@ -135,7 +142,23 @@ export default function ForgotPasswordScreen() {
               {step === 1 ? (
                 <>
                   <Text style={styles.sheetTitle}>Forgot your password?</Text>
-                  <Text style={styles.sheetSub}>Enter your registered email and we'll send you a 6-digit reset code.</Text>
+                  <Text style={styles.sheetSub}>Enter your registered phone number and email — since some households share one email, we need both to find your account.</Text>
+
+                  <Text style={styles.label}>PHONE NUMBER</Text>
+                  <View style={[styles.inputWrap, focusedInput === 'phone' && styles.inputFocused]}>
+                    <Ionicons name="call-outline" size={18} color={focusedInput === 'phone' ? Colors.primary : 'rgba(255,255,255,0.3)'} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter your phone number"
+                      placeholderTextColor="rgba(255,255,255,0.25)"
+                      value={phone}
+                      onChangeText={(t) => setPhone(t.replace(/[^0-9]/g, ''))}
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                      onFocus={() => setFocusedInput('phone')}
+                      onBlur={() => setFocusedInput(null)}
+                    />
+                  </View>
 
                   <Text style={styles.label}>EMAIL ADDRESS</Text>
                   <View style={[styles.inputWrap, focusedInput === 'email' && styles.inputFocused]}>

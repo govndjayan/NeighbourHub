@@ -20,8 +20,8 @@ exports.register = async (req, res) => {
     const userExists = await User.findOne({ phone });
     if (userExists) return res.status(400).json({ message: 'User already exists with this phone number' });
 
-    const emailExists = await User.findOne({ email: normalizedEmail });
-    if (emailExists) return res.status(400).json({ message: 'An account with this email already exists' });
+    // Email is intentionally NOT unique — multiple residents of the same
+    // house may register different accounts under one shared email.
 
     const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     const colors = ['#7b1fa2', '#1565c0', '#00695c', '#e65100', '#c62828', '#4527a0', '#00838f', '#558b2f'];
@@ -85,10 +85,16 @@ exports.login = async (req, res) => {
 };
 
 // @route POST /api/auth/forgot-password
-// Body: { email }  -> generates OTP, emails it. Always responds generically.
+// Body: { phone, email }  -> generates OTP, emails it. Always responds generically.
+// Both phone and email are required: since email is no longer unique (two
+// residents of one house may share it), phone is what pins down the exact
+// account to reset.
 exports.forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { phone, email } = req.body;
+    if (!phone || !phone.trim()) {
+      return res.status(400).json({ message: 'Please enter your phone number' });
+    }
     if (!email || !email.trim()) {
       return res.status(400).json({ message: 'Please enter your email address' });
     }
@@ -97,10 +103,10 @@ exports.forgotPassword = async (req, res) => {
     // Generic response used whether or not the account exists (prevents enumeration)
     const genericResponse = {
       success: true,
-      message: 'If an account with that email exists, a reset code has been sent.',
+      message: 'If a matching account exists, a reset code has been sent.',
     };
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({ phone: phone.trim(), email: normalizedEmail });
     if (!user) return res.json(genericResponse);
 
     const otp = user.getResetOTP();
@@ -125,12 +131,12 @@ exports.forgotPassword = async (req, res) => {
 };
 
 // @route POST /api/auth/reset-password
-// Body: { email, otp, password }  -> verifies OTP + expiry, sets new password
+// Body: { phone, email, otp, password }  -> verifies OTP + expiry, sets new password
 exports.resetPassword = async (req, res) => {
   try {
-    const { email, otp, password } = req.body;
-    if (!email || !otp || !password) {
-      return res.status(400).json({ message: 'Email, code and new password are required' });
+    const { phone, email, otp, password } = req.body;
+    if (!phone || !email || !otp || !password) {
+      return res.status(400).json({ message: 'Phone, email, code and new password are required' });
     }
     if (password.length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
@@ -140,6 +146,7 @@ exports.resetPassword = async (req, res) => {
     const hashedOTP = crypto.createHash('sha256').update('' + otp).digest('hex');
 
     const user = await User.findOne({
+      phone: phone.trim(),
       email: normalizedEmail,
       resetPasswordOTP: hashedOTP,
       resetPasswordExpire: { $gt: Date.now() },

@@ -92,9 +92,12 @@ exports.getStats = async (req, res) => {
     const Food = require('../models/Food');
     const Complaint = require('../models/Complaint');
 
-    // Unique house numbers
+    // Unique house numbers — multiple residents of the same house count as
+    // ONE family. Normalize away case/spacing/punctuation differences (e.g.
+    // "HPA-96", "hpa 96", "HPA96" should all group together).
     const allUsers = await User.find({ isActive: true }).select('houseNo');
-    const uniqueHouses = new Set(allUsers.map(u => u.houseNo?.trim().toLowerCase()));
+    const normalizeHouse = (h) => (h || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const uniqueHouses = new Set(allUsers.map(u => normalizeHouse(u.houseNo)));
     const familiesCount = uniqueHouses.size;
 
     // Food shared this week

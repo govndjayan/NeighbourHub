@@ -5,7 +5,9 @@ const crypto = require('crypto');
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   phone: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+  // Not unique: multiple residents of the same house may share one email
+  // (e.g. one address used for both accounts at registration).
+  email: { type: String, required: true, trim: true, lowercase: true },
   houseNo: { type: String, required: true },
   block: { type: String, required: true },
   residentSince: { type: String },

@@ -223,7 +223,7 @@ export default function ChatScreen() {
         <View style={styles.orb2} />
       </View>
 
-      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
 
         {/* Header */}
         <Animated.View style={[styles.header, { opacity: headerOpacity, transform: [{ translateY: headerY }] }]}>

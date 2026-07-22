@@ -89,7 +89,7 @@ export default function LoginScreen() {
       {/* Grid overlay */}
       <View style={styles.grid} />
 
-      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -108,7 +108,7 @@ export default function LoginScreen() {
                   style={styles.logoRing}
                 >
                   <View style={styles.logoInner}>
-                    <Ionicons name="home" size={36} color="#fff" />
+                    <Ionicons name="home" size={26} color="#fff" />
                   </View>
                 </LinearGradient>
                 <Text style={styles.appName}>Hill Park Avenue</Text>
@@ -248,67 +248,67 @@ const styles = StyleSheet.create({
   top: {
     flex: 1, alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 60, paddingBottom: 40,
+    paddingTop: 24, paddingBottom: 14,
   },
-  logoWrap: { alignItems: 'center', gap: 12 },
+  logoWrap: { alignItems: 'center', gap: 8 },
   logoRing: {
-    width: 90, height: 90, borderRadius: 26,
+    width: 62, height: 62, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
   },
   logoInner: { alignItems: 'center', justifyContent: 'center' },
-  appName: { fontSize: 30, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
-  appSub: { fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 1.5 },
+  appName: { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
+  appSub: { fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 1.5 },
   sheet: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderTopLeftRadius: 32, borderTopRightRadius: 32,
     borderWidth: 1, borderBottomWidth: 0,
     borderColor: 'rgba(255,255,255,0.08)',
-    padding: 28, paddingBottom: 48,
+    padding: 20, paddingBottom: 24,
   },
   handle: {
     width: 36, height: 4, borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.15)',
-    alignSelf: 'center', marginBottom: 24,
+    alignSelf: 'center', marginBottom: 14,
   },
-  sheetTitle: { fontSize: 24, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  sheetSub: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 24 },
+  sheetTitle: { fontSize: 19, fontWeight: '700', color: '#fff', marginBottom: 3 },
+  sheetSub: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 16 },
   label: {
-    fontSize: 11, fontWeight: '700',
+    fontSize: 10, fontWeight: '700',
     color: 'rgba(255,255,255,0.4)',
-    letterSpacing: 1, marginBottom: 8,
+    letterSpacing: 1, marginBottom: 6,
   },
   inputWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 14, paddingHorizontal: 14,
-    paddingVertical: 14, marginBottom: 16,
+    paddingVertical: 11, marginBottom: 12,
   },
   inputFocused: {
     borderColor: 'rgba(108,99,255,0.6)',
     backgroundColor: 'rgba(108,99,255,0.08)',
   },
-  input: { flex: 1, fontSize: 15, color: '#fff' },
-  forgot: { alignSelf: 'flex-end', marginBottom: 20 },
+  input: { flex: 1, fontSize: 14, color: '#fff' },
+  forgot: { alignSelf: 'flex-end', marginBottom: 14 },
   forgotText: { fontSize: 12, color: 'rgba(108,99,255,0.8)', fontWeight: '600' },
   loginBtnWrap: { borderRadius: 16, overflow: 'hidden', marginBottom: 6 },
   loginBtn: {
-    padding: 16, flexDirection: 'row',
+    padding: 13, flexDirection: 'row',
     alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  loginBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
-  divider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 },
+  loginBtnText: { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 12 },
   divLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.08)' },
   divText: { fontSize: 12, color: 'rgba(255,255,255,0.3)' },
   registerBtn: {
     borderWidth: 1.5, borderColor: 'rgba(108,99,255,0.4)',
-    borderRadius: 16, padding: 16, alignItems: 'center',
+    borderRadius: 16, padding: 13, alignItems: 'center',
     backgroundColor: 'rgba(108,99,255,0.08)',
   },
-  registerBtnText: { color: 'rgba(255,255,255,0.8)', fontSize: 15, fontWeight: '600' },
+  registerBtnText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '600' },
   hint: {
-    fontSize: 11, color: 'rgba(255,255,255,0.2)',
-    textAlign: 'center', marginTop: 16, lineHeight: 18,
+    fontSize: 10, color: 'rgba(255,255,255,0.2)',
+    textAlign: 'center', marginTop: 10, lineHeight: 15,
   },
-}); 
+});

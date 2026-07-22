@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
 import SwipeWrapper from '../../components/SwipeWrapper';
 import { io } from 'socket.io-client';
 import { BASE_URL } from '../../constants/config';
@@ -12,7 +13,7 @@ import {
   ActivityIndicator, RefreshControl, Modal, TextInput, Alert, Animated, Dimensions, Image,
   KeyboardAvoidingView, Platform, Linking
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -20,6 +21,12 @@ import { useAuth } from '../../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'];
+const BLOCKS = ['All', 'Lands Down Park', 'Hill Top Garden', 'Aakkulam Avenue'];
+const SORT_OPTIONS = [
+  { key: 'newest', label: 'Newest' },
+  { key: 'availability', label: 'Availability' },
+  { key: 'oldest', label: 'Oldest to Newest' },
+];
 
 // Instagram/Messenger-style comment bubbles + composer, reused inline on a
 // card and inside the request detail modal — one implementation, two spots.
@@ -71,13 +78,53 @@ const ThreadPanel = ({ loading, comments, currentUserId, inputValue, onChangeInp
   </View>
 );
 
+const SkeletonCard = () => {
+  const pulse = useRef(new Animated.Value(0.35)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 0.75, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.35, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  return (
+    <View style={styles.card}>
+      <View style={[styles.cardAccent, { backgroundColor: 'rgba(255,255,255,0.08)' }]} />
+      <View style={styles.cardContent}>
+        <Animated.View style={[styles.skeletonLine, { width: '55%', height: 18, opacity: pulse }]} />
+        <Animated.View style={[styles.skeletonLine, { width: '35%', height: 12, marginTop: 8, opacity: pulse }]} />
+        <Animated.View style={[styles.skeletonLine, { width: '100%', height: 14, marginTop: 16, opacity: pulse }]} />
+        <Animated.View style={[styles.skeletonLine, { width: '70%', height: 14, marginTop: 6, opacity: pulse }]} />
+      </View>
+    </View>
+  );
+};
+
  const FoodCard = ({
    item, type, user, getTimeAgo, handleClaim, handleOffer, handleViewOffers, handleViewDetail, handleMarkOutOfStock,
- }) => (
-  <TouchableOpacity onPress={() => handleViewDetail(item)} activeOpacity={0.85}>
-    <View style={styles.card}>
+ }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 50, bounciness: 4 }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 6 }).start();
+
+  return (
+  <TouchableOpacity
+    onPress={() => handleViewDetail(item)}
+    onPressIn={onPressIn}
+    onPressOut={onPressOut}
+    activeOpacity={0.9}
+  >
+    <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
       <View style={[styles.cardAccent, { backgroundColor: type === 'share' ? '#2ed573' : '#f5576c' }]} />
       <View style={styles.cardContent}>
+
+        {/* Photo — shown first, full width, for a more visual/modern feed */}
+        {item.photo ? (
+          <Image source={{ uri: item.photo }} style={styles.cardImage} resizeMode="cover" />
+        ) : null}
 
         {/* Card Top */}
         <View style={styles.cardTop}>
@@ -94,11 +141,6 @@ const ThreadPanel = ({ loading, comments, currentUserId, inputValue, onChangeInp
             </Text>
           </View>
         </View>
-
-        {/* Photo */}
-        {item.photo ? (
-          <Image source={{ uri: item.photo }} style={styles.cardImage} resizeMode="cover" />
-        ) : null}
 
         {/* Progress bar */}
         {type === 'share' ? (
@@ -177,12 +219,14 @@ const ThreadPanel = ({ loading, comments, currentUserId, inputValue, onChangeInp
         </View>
 
       </View>
-    </View>
+    </Animated.View>
   </TouchableOpacity>
-);
+  );
+};
 
 export default function FoodScreen() {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [image, setImage] = useState(null);
   const [sharePosts, setSharePosts] = useState([]);
   const [requestPosts, setRequestPosts] = useState([]);
@@ -210,6 +254,26 @@ const [claimModal, setClaimModal] = useState(false);
 const [claimTarget, setClaimTarget] = useState(null);
 const [claimQuantity, setClaimQuantity] = useState(1);
 const [claimSubmitting, setClaimSubmitting] = useState(false);
+// Toast — lightweight, non-blocking confirmation instead of Alert for success paths
+const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' }
+const toastAnim = useRef(new Animated.Value(0)).current;
+const toastTimeoutRef = useRef(null);
+const showToast = useCallback((message, type = 'success') => {
+  if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+  setToast({ message, type });
+  toastAnim.setValue(0);
+  Animated.spring(toastAnim, { toValue: 1, useNativeDriver: true, friction: 8, tension: 80 }).start();
+  toastTimeoutRef.current = setTimeout(() => {
+    Animated.timing(toastAnim, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => setToast(null));
+  }, 2200);
+}, [toastAnim]);
+// Discovery: sort + block filter for the browsing lists, tucked behind a filter button
+const [sortBy, setSortBy] = useState('newest');
+const [blockFilter, setBlockFilter] = useState('All');
+const [filterModal, setFilterModal] = useState(false);
+// Sliding pill under the Posts/Requests segmented control
+const [segmentWidth, setSegmentWidth] = useState(0);
+const segmentAnim = useRef(new Animated.Value(0)).current;
 // Live coordination thread — always visible on an accepted request's card
 // (no separate "message helper" click). Keyed by food post id since several
 // accepted requests can have their threads showing at once.
@@ -229,6 +293,16 @@ useEffect(() => { userRef.current = user; }, [user]);
 
 const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'requests'
   const [showMine, setShowMine] = useState(false); // filter current tab to my own items
+
+  useEffect(() => {
+    Animated.spring(segmentAnim, {
+      toValue: activeSubTab === 'requests' ? 1 : 0,
+      useNativeDriver: true,
+      friction: 8,
+      tension: 80,
+    }).start();
+  }, [activeSubTab]);
+
   const orb1 = useRef(new Animated.Value(0)).current;
   const orb2 = useRef(new Animated.Value(0)).current;
 
@@ -394,7 +468,8 @@ if (image && image.startsWith('file')) {
         preferences,
         photo: photoUrl,
       });
-      Alert.alert('Success', 'Changes saved!');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast('Changes saved!');
     } else {
       console.log('CREATING POST WITH PHOTO:', photoUrl);
       await createFoodPost({
@@ -407,12 +482,14 @@ if (image && image.startsWith('file')) {
         photo: photoUrl,
         availableTill: new Date(Date.now() + 8 * 60 * 60 * 1000),
       });
-      Alert.alert('Success', modalType === 'share' ? 'Food post shared!' : 'Request posted!');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast(modalType === 'share' ? 'Food post shared!' : 'Request posted!');
     }
     setModalType(null);
     resetForm();
     fetchFoodPosts();
   } catch (error) {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     Alert.alert('Error', error.response?.data?.message || 'Something went wrong');
   } finally {
     setSubmitting(false);
@@ -443,7 +520,10 @@ const handleDeletePost = (post) => {
             } else {
               setRequestPosts(prev => prev.filter(p => p._id !== post._id));
             }
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            showToast(post.type === 'share' ? 'Post deleted' : 'Request deleted');
           } catch (error) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             Alert.alert('Error', error.response?.data?.message || 'Could not delete');
           }
         }
@@ -465,9 +545,11 @@ const handleDeletePost = (post) => {
     try {
       await claimFood(claimTarget._id, { quantity: claimQuantity });
       setClaimModal(false);
-      Alert.alert('Success', `Claimed ${claimQuantity} portion${claimQuantity > 1 ? 's' : ''}!`);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast(`Claimed ${claimQuantity} portion${claimQuantity > 1 ? 's' : ''}!`);
       fetchFoodPosts();
     } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', error.response?.data?.message || 'Could not claim');
     } finally {
       setClaimSubmitting(false);
@@ -490,9 +572,11 @@ const handleDeletePost = (post) => {
       setOfferModal(false);
       setOfferTargetId(null);
       setOfferComment('');
-      Alert.alert('Success', 'Offer sent!');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast('Offer sent!');
       fetchFoodPosts();
     } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', error.response?.data?.message || 'Could not send offer');
     } finally {
       setOfferSubmitting(false);
@@ -645,9 +729,11 @@ const handleAcceptOffer = async (offerId) => {
           try {
             await acceptOffer(selectedPost._id, offerId);
             setOffersModal(false);
-            Alert.alert('Success', 'Offer accepted! Tap the card to coordinate.');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            showToast('Offer accepted! Tap the card to coordinate.');
             fetchFoodPosts();
           } catch (error) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             Alert.alert('Error', error.response?.data?.message || 'Could not accept offer');
           }
         }
@@ -667,9 +753,11 @@ const handleMarkOutOfStock = async (postId) => {
         onPress: async () => {
           try {
             await markFoodOutOfStock(postId);
-            Alert.alert('Done', 'Post marked as out of stock');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            showToast('Post marked as out of stock');
             fetchFoodPosts();
           } catch (error) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             Alert.alert('Error', error.response?.data?.message || 'Could not update');
           }
         }
@@ -701,6 +789,174 @@ const handleMarkOutOfStock = async (postId) => {
   const regularRequests = requestPosts.filter(p => !iAmAcceptedHelper(p) && !iPostedWithHelper(p));
   const visibleRequests = showMine ? regularRequests.filter(mine) : regularRequests;
 
+  // Discovery: narrow by neighbourhood block, then sort
+  const byBlock = (p) => blockFilter === 'All' || p.postedBy?.block === blockFilter;
+  const sortList = (list, kind) => {
+    const arr = [...list];
+    if (sortBy === 'availability') {
+      arr.sort((a, b) => {
+        const aTime = new Date(kind === 'share' ? a.availableTill : (a.neededBy || a.availableTill)).getTime();
+        const bTime = new Date(kind === 'share' ? b.availableTill : (b.neededBy || b.availableTill)).getTime();
+        return (isNaN(aTime) ? Infinity : aTime) - (isNaN(bTime) ? Infinity : bTime);
+      });
+    } else if (sortBy === 'oldest') {
+      arr.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    }
+    return arr; // 'newest' — already createdAt desc from the API
+  };
+  const discoverableShares = sortList(visibleShares.filter(byBlock), 'share');
+  const discoverableRequests = sortList(visibleRequests.filter(byBlock), 'request');
+
+  // Build the scrollable content as a flat array so section headers can be
+  // marked sticky by index (ScrollView's stickyHeaderIndices) — the number
+  // of sections varies (accepted sections only show when non-empty), so the
+  // indices are computed here rather than hard-coded.
+  const listChildren = [];
+  const stickyIndices = [];
+
+  listChildren.push(
+    <View key="header" style={styles.header}>
+      <LinearGradient colors={['rgba(240,147,251,0.3)', 'rgba(245,87,108,0.3)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGrad}>
+        <Text style={styles.headerTitle}>Food & Resource Hub🍱</Text>
+        <Text style={styles.headerSub}>Share and request food, products and lot more</Text>
+      </LinearGradient>
+    </View>
+  );
+
+  listChildren.push(
+    <View key="subtab" style={styles.subTabBar}>
+      <View style={styles.segment} onLayout={(e) => setSegmentWidth(e.nativeEvent.layout.width)}>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.segmentIndicator,
+            segmentWidth > 0 && {
+              width: (segmentWidth - 8) / 2,
+              transform: [{
+                translateX: segmentAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, (segmentWidth - 8) / 2],
+                }),
+              }],
+            },
+          ]}
+        />
+        <TouchableOpacity
+          style={styles.segmentBtn}
+          onPress={() => { setActiveSubTab('posts'); setShowMine(false); }}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.segmentText, activeSubTab === 'posts' && styles.segmentTextActive]}>Posts</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.segmentBtn}
+          onPress={() => { setActiveSubTab('requests'); setShowMine(false); }}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.segmentText, activeSubTab === 'requests' && styles.segmentTextActive]}>Requests</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.myPill, showMine && styles.myPillActive]}
+        onPress={() => setShowMine(m => !m)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="person" size={15} color={showMine ? '#fff' : '#f5576c'} />
+        <Text style={[styles.myPillText, showMine && styles.myPillTextActive]}>
+          {activeSubTab === 'posts' ? 'My Posts' : 'My Requests'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const filterActive = blockFilter !== 'All' || sortBy !== 'newest';
+  listChildren.push(
+    <View key="filterBtnRow" style={styles.filterBtnRow}>
+      <TouchableOpacity style={styles.filterBtn} onPress={() => setFilterModal(true)}>
+        <Ionicons name="options-outline" size={15} color="#fff" />
+        <Text style={styles.filterBtnText}>Filter</Text>
+        {filterActive && <View style={styles.filterBtnDot} />}
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (loading) {
+    listChildren.push(<SkeletonCard key="sk1" />, <SkeletonCard key="sk2" />, <SkeletonCard key="sk3" />);
+  } else {
+    if (activeSubTab === 'requests' && myAcceptedRequests.length > 0) {
+      stickyIndices.push(listChildren.length);
+      listChildren.push(
+        <View key="hdr-mine-accepted" style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, styles.acceptedSectionTitle]}>🤝 Helper accepted</Text>
+          <Text style={styles.sectionCount}>{`${myAcceptedRequests.length} active`}</Text>
+        </View>
+      );
+      myAcceptedRequests.forEach(item => listChildren.push(
+        <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
+      ));
+    }
+
+    if (activeSubTab === 'requests' && acceptedHelpRequests.length > 0) {
+      stickyIndices.push(listChildren.length);
+      listChildren.push(
+        <View key="hdr-helping" style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, styles.acceptedSectionTitle]}>✅ Accepted your offer</Text>
+          <Text style={styles.sectionCount}>{`${acceptedHelpRequests.length} active`}</Text>
+        </View>
+      );
+      acceptedHelpRequests.forEach(item => listChildren.push(
+        <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
+      ));
+    }
+
+    stickyIndices.push(listChildren.length);
+    listChildren.push(
+      <View key="hdr-main" style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>
+          {activeSubTab === 'posts'
+            ? (showMine ? 'My shared posts' : 'Available to claim')
+            : (showMine ? 'My requests' : 'Open requests')}
+        </Text>
+        <Text style={styles.sectionCount}>
+          {`${activeSubTab === 'posts' ? discoverableShares.length : discoverableRequests.length} active`}
+        </Text>
+      </View>
+    );
+
+    if (activeSubTab === 'posts') {
+      if (discoverableShares.length === 0) {
+        listChildren.push(
+          <View key="empty" style={styles.emptyState}>
+            <Ionicons name="restaurant-outline" size={32} color="rgba(255,255,255,0.2)" />
+            <Text style={styles.emptyText}>{showMine ? "You haven't shared anything yet" : 'Nothing shared yet'}</Text>
+            <Text style={styles.emptyHint}>Tap the + button to share food or items</Text>
+          </View>
+        );
+      } else {
+        discoverableShares.forEach(item => listChildren.push(
+          <FoodCard key={item._id} item={item} type="share" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
+        ));
+      }
+    } else {
+      if (discoverableRequests.length === 0) {
+        listChildren.push(
+          <View key="empty" style={styles.emptyState}>
+            <Ionicons name="hand-left-outline" size={32} color="rgba(255,255,255,0.2)" />
+            <Text style={styles.emptyText}>{showMine ? "You haven't requested anything yet" : 'No requests yet'}</Text>
+            <Text style={styles.emptyHint}>Tap the + button to ask your neighbours</Text>
+          </View>
+        );
+      } else {
+        discoverableRequests.forEach(item => listChildren.push(
+          <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
+        ));
+      }
+    }
+
+    listChildren.push(<View key="spacer" style={{ height: 24 }} />);
+  }
+
   return (
     <SwipeWrapper>
     <View style={styles.container}>
@@ -709,113 +965,34 @@ const handleMarkOutOfStock = async (postId) => {
         <Animated.View style={[styles.orb, styles.orb2, { transform: [{ translateY: orb2Y }] }]} />
       </View>
 
+      {toast && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.toast,
+            {
+              top: insets.top + 10,
+              opacity: toastAnim,
+              transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }],
+            },
+          ]}
+        >
+          <Ionicons
+            name={toast.type === 'error' ? 'close-circle' : 'checkmark-circle'}
+            size={18}
+            color={toast.type === 'error' ? '#ff4757' : '#2ed573'}
+          />
+          <Text style={styles.toastText}>{toast.message}</Text>
+        </Animated.View>
+      )}
+
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <ScrollView
           showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={stickyIndices}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f5576c" />}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <LinearGradient colors={['rgba(240,147,251,0.3)', 'rgba(245,87,108,0.3)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGrad}>
-              <Text style={styles.headerTitle}>MarketPlace 🍱</Text>
-              <Text style={styles.headerSub}>Share and request food, products and lot more</Text>
-            </LinearGradient>
-          </View>
-
-          {/* Sub-tab navigation bar: segmented toggle + My pill */}
-          <View style={styles.subTabBar}>
-            <View style={styles.segment}>
-              <TouchableOpacity
-                style={[styles.segmentBtn, activeSubTab === 'posts' && styles.segmentBtnActive]}
-                onPress={() => { setActiveSubTab('posts'); setShowMine(false); }}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.segmentText, activeSubTab === 'posts' && styles.segmentTextActive]}>Posts</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.segmentBtn, activeSubTab === 'requests' && styles.segmentBtnActive]}
-                onPress={() => { setActiveSubTab('requests'); setShowMine(false); }}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.segmentText, activeSubTab === 'requests' && styles.segmentTextActive]}>Requests</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.myPill, showMine && styles.myPillActive]}
-              onPress={() => setShowMine(m => !m)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="person" size={15} color={showMine ? '#fff' : '#f5576c'} />
-              <Text style={[styles.myPillText, showMine && styles.myPillTextActive]}>
-                {activeSubTab === 'posts' ? 'My Posts' : 'My Requests'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {loading ? (
-  <ActivityIndicator color="#f5576c" style={{ marginTop: 40 }} />
-) : (
-  <>
-{activeSubTab === 'requests' && myAcceptedRequests.length > 0 && (
-  <>
-    <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, styles.acceptedSectionTitle]}>🤝 Helper accepted</Text>
-      <Text style={styles.sectionCount}>{`${myAcceptedRequests.length} active`}</Text>
-    </View>
-    {myAcceptedRequests.map(item => (
-      <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
-    ))}
-  </>
-)}
-{activeSubTab === 'requests' && acceptedHelpRequests.length > 0 && (
-  <>
-    <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, styles.acceptedSectionTitle]}>✅ Accepted your offer</Text>
-      <Text style={styles.sectionCount}>{`${acceptedHelpRequests.length} active`}</Text>
-    </View>
-    {acceptedHelpRequests.map(item => (
-      <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
-    ))}
-  </>
-)}
-<View style={styles.sectionHeader}>
-  <Text style={styles.sectionTitle}>
-    {activeSubTab === 'posts'
-      ? (showMine ? 'My shared posts' : 'Available to claim')
-      : (showMine ? 'My requests' : 'Open requests')}
-  </Text>
-  <Text style={styles.sectionCount}>
-    {`${activeSubTab === 'posts' ? visibleShares.length : visibleRequests.length} active`}
-  </Text>
-</View>
-
-{activeSubTab === 'posts' ? (
-  visibleShares.length === 0 ? (
-    <View style={styles.emptyState}>
-      <Ionicons name="restaurant-outline" size={32} color="rgba(255,255,255,0.2)" />
-      <Text style={styles.emptyText}>{showMine ? "You haven't shared anything yet" : 'Nothing shared yet'}</Text>
-      <Text style={styles.emptyHint}>Tap the + button to share food or items</Text>
-    </View>
-  ) : visibleShares.map(item => (
-    <FoodCard key={item._id} item={item} type="share" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
-  ))
-) : (
-  visibleRequests.length === 0 ? (
-    <View style={styles.emptyState}>
-      <Ionicons name="hand-left-outline" size={32} color="rgba(255,255,255,0.2)" />
-      <Text style={styles.emptyText}>{showMine ? "You haven't requested anything yet" : 'No requests yet'}</Text>
-      <Text style={styles.emptyHint}>Tap the + button to ask your neighbours</Text>
-    </View>
-  ) : visibleRequests.map(item => (
-    <FoodCard key={item._id} item={item} type="request" user={user} getTimeAgo={getTimeAgo} handleClaim={handleClaim} handleOffer={handleOffer} handleViewOffers={handleViewOffers} handleViewDetail={handleViewDetail} handleMarkOutOfStock={handleMarkOutOfStock} />
-  ))
-)}
-  </>
-)}         
- <View style={{ height: 24 }} />
-          
-
+          {listChildren}
         </ScrollView>
       </SafeAreaView>
 
@@ -1095,6 +1272,68 @@ const handleMarkOutOfStock = async (postId) => {
                   {claimSubmitting
                     ? <ActivityIndicator color="#fff" size="small" />
                     : <Text style={styles.offerModalSubmitText}>{`Collect ${claimQuantity}`}</Text>}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Filter & sort */}
+      <Modal visible={filterModal} animationType="slide" transparent>
+        <View style={styles.offerModalOverlay}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setFilterModal(false)}
+          />
+          <View style={styles.offerModalSheet}>
+            <Text style={styles.offerModalTitle}>Filter & Sort</Text>
+
+            <Text style={styles.inputLabel}>AREA</Text>
+            <View style={styles.filterChipWrap}>
+              {BLOCKS.map(b => (
+                <TouchableOpacity
+                  key={b}
+                  style={[styles.blockChip, blockFilter === b && styles.blockChipActive]}
+                  onPress={() => setBlockFilter(b)}
+                >
+                  <Text style={[styles.blockChipText, blockFilter === b && styles.blockChipTextActive]}>{b}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.inputLabel}>SORT</Text>
+            <View style={styles.filterChipWrap}>
+              {SORT_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.sortChip, sortBy === opt.key && styles.sortChipActive]}
+                  onPress={() => setSortBy(opt.key)}
+                >
+                  <Text style={[styles.sortChipText, sortBy === opt.key && styles.sortChipTextActive]}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.offerModalActions}>
+              <TouchableOpacity
+                style={styles.offerModalCancel}
+                onPress={() => { setBlockFilter('All'); setSortBy('newest'); }}
+              >
+                <Text style={styles.offerModalCancelText}>Reset</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.offerModalSubmit}
+                onPress={() => setFilterModal(false)}
+              >
+                <LinearGradient
+                  colors={['#6c63ff', '#a78bfa']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.offerModalSubmitGrad}
+                >
+                  <Text style={styles.offerModalSubmitText}>Done</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -1385,7 +1624,11 @@ const styles = StyleSheet.create({
   actionIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
   actionTitle: { fontSize: 14, fontWeight: '700', color: '#fff' },
   actionSub: { fontSize: 11, color: 'rgba(255,255,255,0.4)' },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10, marginTop: 8 },
+  sectionHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: '#07231f',
+  },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#fff' },
   sectionCount: { fontSize: 12, color: '#6c63ff', fontWeight: '600' },
   acceptedSectionTitle: { color: '#2ed573' },
@@ -1393,13 +1636,13 @@ const styles = StyleSheet.create({
   cardAccent: { width: 3 },
   cardContent: { flex: 1, padding: 14 },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#fff', marginBottom: 2 },
-  cardFlat: { fontSize: 11, color: 'rgba(255,255,255,0.35)' },
+  cardTitle: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 3 },
+  cardFlat: { fontSize: 13, color: 'rgba(255,255,255,0.4)' },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
   badgeText: { fontSize: 10, fontWeight: '700' },
   progressBg: { height: 3, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 2, marginBottom: 10, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: '#6c63ff', borderRadius: 2 },
-  cardDesc: { fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 18, marginBottom: 10 },
+  cardDesc: { fontSize: 15, color: 'rgba(255,255,255,0.55)', lineHeight: 21, marginBottom: 10 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   countRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, flexWrap: 'wrap' },
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 10 },
@@ -1429,14 +1672,18 @@ const styles = StyleSheet.create({
     padding: 4,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    width: 200,
+    position: 'relative',
+  },
+  segmentIndicator: {
+    position: 'absolute', top: 4, left: 4, bottom: 4,
+    backgroundColor: '#f5576c', borderRadius: 22,
   },
   segmentBtn: {
-    paddingHorizontal: 22,
+    width: 96,
     paddingVertical: 11,
     borderRadius: 22,
-  },
-  segmentBtnActive: {
-    backgroundColor: '#f5576c',
+    alignItems: 'center',
   },
   segmentText: { fontSize: 15, fontWeight: '800', color: 'rgba(255,255,255,0.45)' },
   segmentTextActive: { color: '#fff' },
@@ -1457,6 +1704,49 @@ const styles = StyleSheet.create({
   },
   myPillText: { fontSize: 15, fontWeight: '800', color: '#f5576c' },
   myPillTextActive: { color: '#fff' },
+
+  // Filter button — opens the Filter & Sort sheet
+  filterBtnRow: { paddingHorizontal: 16, marginBottom: 10 },
+  filterBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+  },
+  filterBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  filterBtnDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f5576c', marginLeft: 2 },
+
+  // Filter & Sort sheet — area + sort chips
+  filterChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  blockChip: {
+    paddingHorizontal: 13, paddingVertical: 8, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  blockChipActive: { backgroundColor: '#6c63ff', borderColor: '#6c63ff' },
+  blockChipText: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.5)' },
+  blockChipTextActive: { color: '#fff' },
+  sortChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  sortChipActive: { backgroundColor: 'rgba(245,87,108,0.15)', borderColor: 'rgba(245,87,108,0.4)' },
+  sortChipText: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.4)' },
+  sortChipTextActive: { color: '#f5576c' },
+
+  // Toast — non-blocking success feedback
+  toast: {
+    position: 'absolute', left: 20, right: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(20,20,28,0.97)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16,
+    zIndex: 999, elevation: 10,
+    shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+  },
+  toastText: { color: '#fff', fontSize: 13, fontWeight: '600', flex: 1 },
 
   // Center-bottom FAB
   fab: {
@@ -1627,10 +1917,11 @@ acceptedText: { fontSize: 10, color: '#2ed573', fontWeight: '600' },
 },
 cardImage: {
   width: '100%',
-  height: 160,
-  borderRadius: 12,
-  marginBottom: 10,
+  height: 200,
+  borderRadius: 14,
+  marginBottom: 12,
 },
+skeletonLine: { backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 6 },
 imagePickerEmpty: {
   alignItems: 'center', justifyContent: 'center',
   padding: 30, gap: 8,

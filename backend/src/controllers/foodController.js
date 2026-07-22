@@ -19,7 +19,7 @@ exports.getFoodPosts = async (req, res) => {
     ];
 
     const posts = await Food.find(query)
-      .populate('postedBy', 'name houseNo initials avatarColor')
+      .populate('postedBy', 'name houseNo block initials avatarColor')
       .populate('claimedBy.user', 'name houseNo initials avatarColor')
       .populate('offers.user', 'name houseNo initials avatarColor')
       .populate('offers.comments.user', 'name houseNo initials avatarColor')

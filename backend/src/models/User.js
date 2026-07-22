@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema({
   availability: {
     type: String,
     enum: ['online', 'busy', 'offline'],
-    default: 'offline',
+    default: 'online',
   },
   availabilityNote: { type: String, default: '' },
   isActive: { type: Boolean, default: true },

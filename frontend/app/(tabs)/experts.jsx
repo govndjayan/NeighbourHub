@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, ActivityIndicator, RefreshControl, Animated
+  TextInput, ActivityIndicator, RefreshControl, Animated, Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { getProfessionals, getConversations } from '../../services/api';
+import * as Haptics from 'expo-haptics';
+import { getProfessionals, getConversations, updateAvailability } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import SwipeWrapper from '../../components/SwipeWrapper';
 import { io } from 'socket.io-client';
@@ -111,6 +112,20 @@ return () => socket.disconnect();
       console.log('Error:', error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Tap your own card to flip your visible status between online/offline
+  const handleToggleAvailability = async (currentAvailability) => {
+    const next = currentAvailability === 'offline' ? 'online' : 'offline';
+    setProfessionals(prev => prev.map(p => p._id === user._id ? { ...p, availability: next } : p));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await updateAvailability({ availability: next });
+    } catch (error) {
+      // Roll back on failure
+      setProfessionals(prev => prev.map(p => p._id === user._id ? { ...p, availability: currentAvailability } : p));
+      Alert.alert('Error', 'Could not update your availability');
     }
   };
 
@@ -262,8 +277,13 @@ return () => socket.disconnect();
               ) : (
                 filtered.map(p => {
                   const isMe = p._id === user?._id;
+                  const CardWrapper = isMe ? TouchableOpacity : View;
                   return (
-                    <View key={p._id} style={[styles.card, isMe && styles.cardMe]}>
+                    <CardWrapper
+                      key={p._id}
+                      style={[styles.card, isMe && styles.cardMe]}
+                      {...(isMe ? { activeOpacity: 0.8, onPress: () => handleToggleAvailability(p.availability) } : {})}
+                    >
                       <View style={[styles.avatar, { backgroundColor: p.avatarColor || '#6c63ff' }]}>
                         <Text style={styles.avatarText}>{p.initials}</Text>
                       </View>
@@ -286,6 +306,7 @@ return () => socket.disconnect();
                           {p.availabilityNote ? (
                             <Text style={styles.availNote}>{`· ${p.availabilityNote}`}</Text>
                           ) : null}
+                          {isMe && <Text style={styles.tapHint}>· tap to toggle</Text>}
                         </View>
                       </View>
                       {isMe ? (
@@ -320,7 +341,7 @@ return () => socket.disconnect();
                           </LinearGradient>
                         </TouchableOpacity>
                       )}
-                    </View>
+                    </CardWrapper>
                   );
                 })
               )}
@@ -485,6 +506,7 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { fontSize: 11, fontWeight: '600' },
   availNote: { fontSize: 10, color: 'rgba(255,255,255,0.25)' },
+  tapHint: { fontSize: 10, color: 'rgba(167,139,250,0.6)', fontStyle: 'italic' },
   chatBtn: { borderRadius: 10, overflow: 'hidden' },
   chatBtnGrad: { paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 4 },
   chatBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },

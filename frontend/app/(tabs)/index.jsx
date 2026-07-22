@@ -293,7 +293,7 @@ const statsCards = [
           <View style={styles.header}>
             <View style={styles.headerTop}>
               <View>
-                <Text style={styles.greeting}>Good morning 👋</Text>
+                <Text style={styles.greeting}>Welcome</Text>
                 <Text style={styles.userName}>{user?.name|| 'Resident'}</Text>
                 <Text style={styles.community}>Hill Park Avenue</Text>
               </View>

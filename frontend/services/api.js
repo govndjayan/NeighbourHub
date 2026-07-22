@@ -55,6 +55,7 @@ export const addComplaintComment = (id, data) => api.post(`/complaints/${id}/com
 export const getAllUsers = () => api.get('/users');
 export const getProfessionals = (category) => api.get(`/users/professionals${category ? `?category=${category}` : ''}`);
 export const updateUserRole = (id, role) => api.put(`/users/${id}/role`, { role });
+export const updateAvailability = (data) => api.put('/users/availability', data);
 export const getStats = () => api.get('/users/stats');
 
 // Chat

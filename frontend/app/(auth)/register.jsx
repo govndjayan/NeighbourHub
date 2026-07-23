@@ -9,9 +9,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import { lookupSociety } from '../../services/api';
 
-const BLOCKS = ['Lands Down Park', 'Hill Top Garden', 'Aakkulam Avenue'];
 const CATEGORIES = ['Medical', 'Legal', 'Finance', 'Home', 'Other'];
+const TOTAL_STEPS = 4;
 
 // ✅ InputField is outside RegisterScreen — prevents re-creation on every render
 const InputField = ({
@@ -55,6 +56,11 @@ export default function RegisterScreen() {
   const [step, setStep] = useState(1);
   const [focusedInput, setFocusedInput] = useState(null);
 
+  // Step 1 — which society this resident is joining
+  const [inviteCode, setInviteCode] = useState('');
+  const [society, setSociety] = useState(null);
+  const [lookingUp, setLookingUp] = useState(false);
+
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -93,8 +99,41 @@ export default function RegisterScreen() {
   const orb1Y = orb1.interpolate({ inputRange: [0, 1], outputRange: [0, -20] });
   const orb2Y = orb2.interpolate({ inputRange: [0, 1], outputRange: [0, -16] });
 
+  // Resolve the invite code to a society so the resident can confirm they're
+  // joining the right community before filling in anything else.
+  const handleVerifyCode = async () => {
+    const code = inviteCode.trim().toUpperCase();
+    if (!code) {
+      Alert.alert('Error', 'Please enter your society invite code');
+      return;
+    }
+    setLookingUp(true);
+    try {
+      const res = await lookupSociety(code);
+      const found = res.data.society;
+      if (found.isFull) {
+        Alert.alert(
+          'Society is full',
+          `${found.name} has reached the limit of its current plan. Please ask your society admin to upgrade before registering.`
+        );
+        return;
+      }
+      setSociety(found);
+      setBlock('');
+      setStep(2);
+    } catch (err) {
+      Alert.alert('Error', err?.response?.data?.message || 'Could not find that society. Please check the code.');
+    } finally {
+      setLookingUp(false);
+    }
+  };
+
   const handleNext = () => {
     if (step === 1) {
+      handleVerifyCode();
+      return;
+    }
+    if (step === 2) {
       if (!name || !phone || !email || !password) {
         Alert.alert('Error', 'Please fill in name, phone, email and password');
         return;
@@ -109,9 +148,13 @@ export default function RegisterScreen() {
         return;
       }
     }
-    if (step === 2) {
-      if (!houseNo || !block) {
-        Alert.alert('Error', 'Please fill in your house number and select a block');
+    if (step === 3) {
+      if (!houseNo) {
+        Alert.alert('Error', 'Please enter your house number');
+        return;
+      }
+      if (society?.blocks?.length && !block) {
+        Alert.alert('Error', 'Please select your block');
         return;
       }
     }
@@ -121,8 +164,9 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     setLoading(true);
     const result = await register({
+      inviteCode: inviteCode.trim().toUpperCase(),
       name, phone, email, password,
-      houseNo, block, 
+      houseNo, block,
       isServiceProvider,
       profession, designation, serviceCategory,
     });
@@ -161,12 +205,12 @@ export default function RegisterScreen() {
                 <Ionicons name="arrow-back" size={20} color="#fff" />
               </TouchableOpacity>
               <Text style={styles.topTitle}>Create Account</Text>
-              <Text style={styles.stepIndicator}>{step}/3</Text>
+              <Text style={styles.stepIndicator}>{step}/{TOTAL_STEPS}</Text>
             </View>
 
             {/* Progress bar */}
             <View style={styles.progressRow}>
-              {[1, 2, 3].map(s => (
+              {[1, 2, 3, 4].map(s => (
                 <View key={s} style={styles.progressTrack}>
                   <LinearGradient
                     colors={s <= step ? ['#6c63ff', '#f093fb'] : ['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.1)']}
@@ -180,7 +224,7 @@ export default function RegisterScreen() {
 
             {/* Step labels */}
             <View style={styles.stepLabels}>
-              {['Account', 'Address', 'Services'].map((label, i) => (
+              {['Society', 'Account', 'Address', 'Services'].map((label, i) => (
                 <Text key={label} style={[styles.stepLabel, step === i + 1 && styles.stepLabelActive]}>
                   {label}
                 </Text>
@@ -191,9 +235,52 @@ export default function RegisterScreen() {
             <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetY }], opacity: sheetOpacity }]}>
               <View style={styles.handle} />
 
-              {/* Step 1 */}
+              {/* Step 1 — join a society */}
               {step === 1 && (
                 <View>
+                  <Text style={styles.sheetTitle}>Join your society</Text>
+                  <Text style={styles.sheetSub}>
+                    Enter the invite code shared by your society's admin or committee.
+                  </Text>
+
+                  <Text style={styles.label}>SOCIETY INVITE CODE</Text>
+                  <View style={[styles.inputWrap, focusedInput === 'inviteCode' && styles.inputFocused]}>
+                    <Ionicons
+                      name="key-outline"
+                      size={18}
+                      color={focusedInput === 'inviteCode' ? '#6c63ff' : 'rgba(255,255,255,0.3)'}
+                    />
+                    <TextInput
+                      style={[styles.input, styles.codeInput]}
+                      placeholder="e.g. HPA2026"
+                      placeholderTextColor="rgba(255,255,255,0.25)"
+                      value={inviteCode}
+                      onChangeText={(t) => setInviteCode(t.toUpperCase().replace(/\s/g, ''))}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      maxLength={12}
+                      onFocus={() => setFocusedInput('inviteCode')}
+                      onBlur={() => setFocusedInput(null)}
+                    />
+                  </View>
+
+                  <Text style={styles.helperNote}>
+                    Don't have a code? Ask your society secretary — every community has its own.
+                  </Text>
+                </View>
+              )}
+
+              {/* Step 2 — personal details */}
+              {step === 2 && (
+                <View>
+                  {society && (
+                    <View style={styles.societyBanner}>
+                      <Ionicons name="business-outline" size={16} color="#2ed573" />
+                      <Text style={styles.societyBannerText}>
+                        Joining {society.name}{society.city ? `, ${society.city}` : ''}
+                      </Text>
+                    </View>
+                  )}
                   <Text style={styles.sheetTitle}>Personal details</Text>
                   <Text style={styles.sheetSub}>Let's start with the basics</Text>
 
@@ -221,8 +308,8 @@ export default function RegisterScreen() {
                 </View>
               )}
 
-              {/* Step 2 */}
-              {step === 2 && (
+              {/* Step 3 — address */}
+              {step === 3 && (
                 <View>
                   <Text style={styles.sheetTitle}>Your address 🏠</Text>
                   <Text style={styles.sheetSub}>Help neighbours find you</Text>
@@ -230,11 +317,11 @@ export default function RegisterScreen() {
                   <Text style={styles.label}>HOUSE NUMBER</Text>
                   <InputField {...inputProps} icon="home-outline" placeholder="e.g. HPA-96" value={houseNo} onChangeText={setHouseNo} fieldName="houseNo" />
 
-                 
-
+                  {society?.blocks?.length > 0 && (
+                  <>
                   <Text style={styles.label}>SELECT YOUR BLOCK</Text>
                   <View style={styles.blockGrid}>
-                    {BLOCKS.map(b => (
+                    {society.blocks.map(b => (
                       <TouchableOpacity
                         key={b}
                         style={[styles.blockChip, block === b && styles.blockChipActive]}
@@ -252,11 +339,13 @@ export default function RegisterScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
+                  </>
+                  )}
                 </View>
               )}
 
-              {/* Step 3 */}
-              {step === 3 && (
+              {/* Step 4 — professional services */}
+              {step === 4 && (
                 <View>
                   <Text style={styles.sheetTitle}>Professional services</Text>
                   <Text style={styles.sheetSub}>Optional — share your expertise with neighbours</Text>
@@ -316,8 +405,8 @@ export default function RegisterScreen() {
 
               {/* Action button */}
               <TouchableOpacity
-                onPress={step < 3 ? handleNext : handleRegister}
-                disabled={loading}
+                onPress={step < TOTAL_STEPS ? handleNext : handleRegister}
+                disabled={loading || lookingUp}
                 style={styles.btnWrap}
               >
                 <LinearGradient
@@ -326,11 +415,17 @@ export default function RegisterScreen() {
                   end={{ x: 1, y: 0 }}
                   style={styles.btn}
                 >
-                  {loading
+                  {(loading || lookingUp)
                     ? <ActivityIndicator color="#fff" />
                     : <>
-                        <Text style={styles.btnText}>{step < 3 ? 'Continue' : 'Create Account'}</Text>
-                        <Ionicons name={step < 3 ? 'arrow-forward' : 'checkmark'} size={18} color="#fff" />
+                        <Text style={styles.btnText}>
+                          {step === 1 ? 'Find my society' : step < TOTAL_STEPS ? 'Continue' : 'Create Account'}
+                        </Text>
+                        <Ionicons
+                          name={step < TOTAL_STEPS ? 'arrow-forward' : 'checkmark'}
+                          size={18}
+                          color="#fff"
+                        />
                       </>
                   }
                 </LinearGradient>
@@ -386,6 +481,19 @@ const styles = StyleSheet.create({
   },
   inputFocused: { borderColor: 'rgba(108,99,255,0.6)', backgroundColor: 'rgba(108,99,255,0.08)' },
   input: { flex: 1, fontSize: 15, color: '#fff' },
+  codeInput: { letterSpacing: 3, fontWeight: '700', fontSize: 17 },
+  helperNote: {
+    fontSize: 12, color: 'rgba(255,255,255,0.35)',
+    lineHeight: 18, marginTop: 2, marginBottom: 4,
+  },
+  societyBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(46,213,115,0.1)',
+    borderWidth: 1, borderColor: 'rgba(46,213,115,0.25)',
+    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+    marginBottom: 16,
+  },
+  societyBannerText: { fontSize: 12, color: '#2ed573', fontWeight: '700', flex: 1 },
   blockGrid: { gap: 8, marginBottom: 16 },
   blockChip: {
     borderRadius: 14, padding: 14, borderWidth: 1,

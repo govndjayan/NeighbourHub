@@ -6,7 +6,7 @@ const User = require('../models/User');
 exports.getFoodPosts = async (req, res) => {
   try {
     const { type } = req.query;
-    const query = { status: 'active' };
+    const query = { societyId: req.societyId, status: 'active' };
     if (type) query.type = type;
 
     // A request with an accepted helper becomes private to the poster and
@@ -39,6 +39,7 @@ exports.createFoodPost = async (req, res) => {
     console.log('CREATING FOOD POST:', { type, category, title, photo });
 
     const post = await Food.create({
+      societyId: req.societyId,
       type, category, title, description,
       portions, remainingPortions: portions,
       availableTill, neededBy, preferences, isExchange,
@@ -47,7 +48,7 @@ exports.createFoodPost = async (req, res) => {
     });
 
     await post.populate('postedBy', 'name houseNo initials avatarColor');
-    req.io.emit('new_food_post', post);
+    req.emitToSociety('new_food_post', post);
 
     res.status(201).json({ success: true, post });
   } catch (error) {
@@ -60,7 +61,7 @@ exports.createFoodPost = async (req, res) => {
 exports.claimFood = async (req, res) => {
   try {
     const { quantity } = req.body;
-    const post = await Food.findById(req.params.id);
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!post) return res.status(404).json({ message: 'Post not found' });
     if (post.remainingPortions < quantity) return res.status(400).json({ message: 'Not enough portions available' });
 
@@ -69,7 +70,7 @@ exports.claimFood = async (req, res) => {
     if (post.remainingPortions === 0) post.status = 'fulfilled';
 
     await post.save();
-    const poster = await User.findById(post.postedBy);
+    const poster = await User.findOne({ _id: post.postedBy, societyId: req.societyId });
 if (poster?.pushToken) {
   await sendPushNotification(
     poster.pushToken,
@@ -83,7 +84,7 @@ if (poster?.pushToken) {
     await post.populate('postedBy', 'name houseNo initials avatarColor');
     await post.populate('claimedBy.user', 'name houseNo initials avatarColor');
 
-    req.io.emit('food_claimed', post);
+    req.emitToSociety('food_claimed', post);
     res.json({ success: true, post });
 
     
@@ -96,7 +97,7 @@ if (poster?.pushToken) {
 exports.offerFood = async (req, res) => {
   try {
     const { description, portions, pickupTime } = req.body;
-    const post = await Food.findById(req.params.id);
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
     // Once a helper is chosen, offers are closed
@@ -122,7 +123,7 @@ exports.offerFood = async (req, res) => {
     await post.populate('offers.user', 'name houseNo initials avatarColor');
 
     // Notify the request owner that someone offered to help
-    const owner = await User.findById(post.postedBy);
+    const owner = await User.findOne({ _id: post.postedBy, societyId: req.societyId });
     if (owner?.pushToken) {
       await sendPushNotification(
         owner.pushToken,
@@ -132,7 +133,7 @@ exports.offerFood = async (req, res) => {
       );
     }
 
-    req.io.emit('new_offer', post);
+    req.emitToSociety('new_offer', post);
     res.json({ success: true, post });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -142,7 +143,7 @@ exports.offerFood = async (req, res) => {
 // @route GET /api/food/:id/offers
 exports.getFoodOffers = async (req, res) => {
   try {
-    const post = await Food.findById(req.params.id)
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId })
       .populate('offers.user', 'name houseNo block initials avatarColor')
       .populate('offers.comments.user', 'name houseNo initials avatarColor');
     if (!post) return res.status(404).json({ message: 'Post not found' });
@@ -168,7 +169,7 @@ exports.getFoodOffers = async (req, res) => {
 exports.acceptOffer = async (req, res) => {
   try {
     const { offerId } = req.body;
-    const post = await Food.findById(req.params.id)
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId })
       .populate('offers.user', 'name houseNo block initials avatarColor');
     if (!post) return res.status(404).json({ message: 'Post not found' });
     if (post.postedBy.toString() !== req.user._id.toString()) {
@@ -201,7 +202,7 @@ exports.acceptOffer = async (req, res) => {
     await post.populate('postedBy', 'name houseNo initials avatarColor');
 
     // Notify the accepted helper so they don't forget their promise
-    const helper = await User.findById(acceptedUserId);
+    const helper = await User.findOne({ _id: acceptedUserId, societyId: req.societyId });
     if (helper?.pushToken) {
       await sendPushNotification(
         helper.pushToken,
@@ -211,7 +212,7 @@ exports.acceptOffer = async (req, res) => {
       );
     }
 
-    req.io.emit('offer_accepted', post);
+    req.emitToSociety('offer_accepted', post);
     res.json({ success: true, post });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -220,7 +221,7 @@ exports.acceptOffer = async (req, res) => {
 
 exports.markOutOfStock = async (req, res) => {
   try {
-    const post = await Food.findById(req.params.id);
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!post) return res.status(404).json({ message: 'Post not found' });
     if (post.postedBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Only the poster can mark as out of stock' });
@@ -229,7 +230,7 @@ exports.markOutOfStock = async (req, res) => {
     post.remainingPortions = 0;
     await post.save();
     await post.populate('postedBy', 'name houseNo initials avatarColor');
-    req.io.emit('food_updated', post);
+    req.emitToSociety('food_updated', post);
     res.json({ success: true, post });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -243,6 +244,7 @@ exports.markOutOfStock = async (req, res) => {
 exports.getMyCommitments = async (req, res) => {
   try {
     const posts = await Food.find({
+      societyId: req.societyId,
       type: 'request',
       selectedOffer: req.user._id,
       offers: { $elemMatch: { user: req.user._id, isSelected: true, fulfilled: { $ne: true } } },
@@ -276,7 +278,7 @@ exports.getMyCommitments = async (req, res) => {
 // The helper marks their accepted offer as fulfilled (promise kept).
 exports.fulfillCommitment = async (req, res) => {
   try {
-    const post = await Food.findById(req.params.id);
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
     const myOffer = post.offers.find(
@@ -289,7 +291,7 @@ exports.fulfillCommitment = async (req, res) => {
     await post.save();
 
     // Let the requester know the helper followed through
-    const owner = await User.findById(post.postedBy);
+    const owner = await User.findOne({ _id: post.postedBy, societyId: req.societyId });
     if (owner?.pushToken) {
       await sendPushNotification(
         owner.pushToken,
@@ -315,7 +317,7 @@ exports.commentOnOffer = async (req, res) => {
     if (!text || !text.trim()) {
       return res.status(400).json({ message: 'Comment cannot be empty' });
     }
-    const post = await Food.findById(req.params.id);
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
     const offer = post.offers.id(req.params.offerId);
@@ -339,7 +341,7 @@ exports.commentOnOffer = async (req, res) => {
 
     // Notify the OTHER party in the thread
     const otherId = isOwner ? (offer.user?._id || offer.user) : post.postedBy;
-    const other = await User.findById(otherId);
+    const other = await User.findOne({ _id: otherId, societyId: req.societyId });
     if (other?.pushToken) {
       await sendPushNotification(
         other.pushToken,
@@ -349,7 +351,7 @@ exports.commentOnOffer = async (req, res) => {
       );
     }
 
-    req.io.emit('offer_comment', { postId: post._id, offerId: offer._id, post });
+    req.emitToSociety('offer_comment', { postId: post._id, offerId: offer._id, post });
     res.json({ success: true, post });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -360,7 +362,7 @@ exports.commentOnOffer = async (req, res) => {
 // Edit a post/request — only the original poster may edit.
 exports.updateFoodPost = async (req, res) => {
   try {
-    const post = await Food.findById(req.params.id);
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!post) return res.status(404).json({ message: 'Post not found' });
     if (post.postedBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Only the poster can edit this' });
@@ -386,7 +388,7 @@ exports.updateFoodPost = async (req, res) => {
     await post.populate('offers.comments.user', 'name houseNo initials avatarColor');
     await post.populate('selectedOffer', 'name houseNo initials avatarColor');
 
-    req.io.emit('food_edited', post);
+    req.emitToSociety('food_edited', post);
     res.json({ success: true, post });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -397,14 +399,14 @@ exports.updateFoodPost = async (req, res) => {
 // Delete a post/request — only the original poster may delete.
 exports.deleteFoodPost = async (req, res) => {
   try {
-    const post = await Food.findById(req.params.id);
+    const post = await Food.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!post) return res.status(404).json({ message: 'Post not found' });
     if (post.postedBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Only the poster can delete this' });
     }
 
     await post.deleteOne();
-    req.io.emit('food_deleted', { _id: req.params.id, type: post.type });
+    req.emitToSociety('food_deleted', { _id: req.params.id, type: post.type });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantScope = require('./plugins/tenantScope');
 
 const announcementSchema = new mongoose.Schema({
   title: { type: String, required: true },
@@ -13,4 +14,6 @@ const announcementSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
-module.exports = mongoose.model('Announcement', announcementSchema); 
+announcementSchema.plugin(tenantScope);
+
+module.exports = mongoose.model('Announcement', announcementSchema);

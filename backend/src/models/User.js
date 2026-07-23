@@ -1,10 +1,12 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const tenantScope = require('./plugins/tenantScope');
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
-  phone: { type: String, required: true, unique: true },
+  // Unique per society, not globally — see the compound index below.
+  phone: { type: String, required: true },
   // Not unique: multiple residents of the same house may share one email
   // (e.g. one address used for both accounts at registration).
   email: { type: String, required: true, trim: true, lowercase: true },
@@ -17,7 +19,9 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: {
     type: String,
-    enum: ['resident', 'committee', 'secretary', 'president'],
+    // societyAdmin is the person who registered the society — they manage
+    // its settings/plan, distinct from the elected committee roles.
+    enum: ['resident', 'committee', 'secretary', 'president', 'societyAdmin'],
     default: 'resident',
   },
   profession: { type: String, default: '' },
@@ -38,6 +42,12 @@ const userSchema = new mongoose.Schema({
   resetPasswordOTP: { type: String, select: false },
   resetPasswordExpire: { type: Date, select: false },
 }, { timestamps: true });
+
+userSchema.plugin(tenantScope);
+
+// A phone number identifies one resident within a society. The same number
+// is allowed to exist in a different society (and, in practice, won't).
+userSchema.index({ societyId: 1, phone: 1 }, { unique: true });
 
 // Hash password before saving
 userSchema.pre('save', async function () {

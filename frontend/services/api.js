@@ -25,6 +25,12 @@ export const getMe = () => api.get('/auth/me');
 export const forgotPassword = (data) => api.post('/auth/forgot-password', data);
 export const resetPassword = (data) => api.post('/auth/reset-password', data);
 
+// Societies (tenants)
+export const lookupSociety = (code) => api.get(`/societies/lookup?code=${encodeURIComponent(code)}`);
+export const createSociety = (data) => api.post('/societies', data);
+export const getMySociety = () => api.get('/societies/mine');
+export const updateMySociety = (data) => api.put('/societies/mine', data);
+
 // Announcements
 export const getAnnouncements = () => api.get('/announcements');
 export const createAnnouncement = (data) => api.post('/announcements', data);

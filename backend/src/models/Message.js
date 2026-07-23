@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantScope = require('./plugins/tenantScope');
 
 const messageSchema = new mongoose.Schema({
   roomId: { type: String, required: true },
@@ -8,4 +9,6 @@ const messageSchema = new mongoose.Schema({
   isRead: { type: Boolean, default: false },
 }, { timestamps: true });
 
-module.exports = mongoose.model('Message', messageSchema); 
+messageSchema.plugin(tenantScope);
+
+module.exports = mongoose.model('Message', messageSchema);

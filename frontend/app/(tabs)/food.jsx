@@ -320,6 +320,12 @@ const [activeSubTab, setActiveSubTab] = useState('posts'); // 'posts' | 'request
     fetchFoodPosts();
       // Setup socket
   socketRef.current = io(BASE_URL, { transports: ['websocket'] });
+    // Community-wide events are broadcast to a per-society room, so we have
+    // to join it (on every (re)connect) or we receive nothing.
+    socketRef.current.on('connect', () => {
+      const sid = userRef.current?.societyId;
+      if (sid) socketRef.current.emit('join_society', sid);
+    });
     // Listen for food claimed event
     socketRef.current.on('food_claimed', (updatedPost) => {
     console.log('FOOD CLAIMED EVENT:', updatedPost._id);

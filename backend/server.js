@@ -13,6 +13,7 @@ const initSocket = require('./src/config/socket');
 // Routes (we'll add these soon)
 const authRoutes = require('./src/routes/auth');
 const userRoutes = require('./src/routes/users');
+const societyRoutes = require('./src/routes/societies');
 const announcementRoutes = require('./src/routes/announcements');
 const foodRoutes = require('./src/routes/food');
 const complaintRoutes = require('./src/routes/complaints');
@@ -34,15 +35,27 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Make io accessible in routes
+// Make io accessible in routes.
+// Community-wide events must go through req.emitToSociety so they only reach
+// the caller's own society — a bare io.emit() would broadcast every society's
+// posts, complaints and announcements to every connected client.
+const { societyRoom } = initSocket;
 app.use((req, res, next) => {
   req.io = io;
+  req.emitToSociety = (event, payload) => {
+    if (!req.societyId) {
+      console.warn(`[socket] emitToSociety('${event}') called without a societyId; dropping event`);
+      return;
+    }
+    io.to(societyRoom(req.societyId)).emit(event, payload);
+  };
   next();
 });
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/societies', societyRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/food', foodRoutes);
 app.use('/api/complaints', complaintRoutes);

@@ -59,6 +59,9 @@ export default function ExpertsScreen() {
     fetchData();
     //unread messages count on chat
     const socket = io(BASE_URL, { transports: ['websocket'] });
+    socket.on('connect', () => {
+      if (user?.societyId) socket.emit('join_society', user.societyId);
+    });
 socket.on('receive_message', async () => {
   // Refresh conversations to update unread count
   const convRes = await getConversations();

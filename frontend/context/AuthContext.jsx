@@ -25,6 +25,20 @@ export const AuthProvider = ({ children }) => {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
         global.authToken = storedToken;
+
+        // Refresh from the server so the cached user picks up fields it may
+        // predate — notably societyId, which sessions created before
+        // multi-tenancy won't have stored and which the socket layer needs.
+        try {
+          const res = await getMe();
+          if (res.data?.user) {
+            setUser(res.data.user);
+            await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
+          }
+        } catch (e) {
+          // Offline or token expired — keep the cached user and let the
+          // normal request flow surface any auth failure.
+        }
       }
     } catch (error) {
       console.log('Error loading auth:', error);

@@ -101,6 +101,11 @@ export const BadgeProvider = ({ children }) => {
     const socket = io(BASE_URL, { transports: ['websocket'] });
     socketRef.current = socket;
 
+    // Community-wide events are scoped to a per-society room.
+    socket.on('connect', () => {
+      if (user?.societyId) socket.emit('join_society', user.societyId);
+    });
+
     const bump = (tab) => setCounts((prev) => ({ ...prev, [tab]: prev[tab] + 1 }));
 
     socket.on('new_food_post', (post) => {
@@ -121,7 +126,7 @@ export const BadgeProvider = ({ children }) => {
     });
 
     return () => socket.disconnect();
-  }, [user?._id]);
+  }, [user?._id, user?.societyId]);
 
   // Call when a tab is focused — clears that tab's badge
   const markSeen = useCallback((tab) => {

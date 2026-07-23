@@ -1,5 +1,7 @@
 const socketIO = require('socket.io');
 
+const societyRoom = (societyId) => `society:${societyId}`;
+
 const initSocket = (server) => {
   const io = socketIO(server, {
     cors: {
@@ -11,7 +13,14 @@ const initSocket = (server) => {
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
-    // Join a private room
+    // Community-wide events (food posts, complaints, announcements) are
+    // broadcast to this room so they never reach another society's clients.
+    socket.on('join_society', (societyId) => {
+      if (!societyId) return;
+      socket.join(societyRoom(societyId));
+    });
+
+    // Join a private 1:1 chat room
     socket.on('join_room', (roomId) => {
       socket.join(roomId);
       console.log(`User joined room: ${roomId}`);
@@ -38,4 +47,5 @@ const initSocket = (server) => {
   return io;
 };
 
-module.exports = initSocket; 
+module.exports = initSocket;
+module.exports.societyRoom = societyRoom;

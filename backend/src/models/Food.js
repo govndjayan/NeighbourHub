@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantScope = require('./plugins/tenantScope');
 
 const offerCommentSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -53,4 +54,6 @@ const foodSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
-module.exports = mongoose.model('Food', foodSchema); 
+foodSchema.plugin(tenantScope);
+
+module.exports = mongoose.model('Food', foodSchema);

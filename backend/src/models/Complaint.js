@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const tenantScope = require('./plugins/tenantScope');
 
 const commentSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -26,4 +27,6 @@ const complaintSchema = new mongoose.Schema({
   resolvedAt: { type: Date },
 }, { timestamps: true });
 
-module.exports = mongoose.model('Complaint', complaintSchema); 
+complaintSchema.plugin(tenantScope);
+
+module.exports = mongoose.model('Complaint', complaintSchema);

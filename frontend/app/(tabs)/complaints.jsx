@@ -47,6 +47,10 @@ export default function ComplaintsScreen() {
   const socketRef = useRef(null);
   const selectedComplaintRef = useRef(null);
   const [activeFilter, setActiveFilter] = useState('all');
+  // Kept in a ref so the socket listeners (registered once on mount) always
+  // read the current society without needing to reconnect.
+  const societyIdRef = useRef(user?.societyId);
+  useEffect(() => { societyIdRef.current = user?.societyId; }, [user?.societyId]);
 
   const orb1 = useRef(new Animated.Value(0)).current;
   const orb2 = useRef(new Animated.Value(0)).current;
@@ -67,6 +71,12 @@ export default function ComplaintsScreen() {
     fetchComplaints();
 
     socketRef.current = io(BASE_URL, { transports: ['websocket'] });
+    // Community-wide events go to a per-society room; join it on every
+    // (re)connect or this client receives nothing.
+    socketRef.current.on('connect', () => {
+      const sid = societyIdRef.current;
+      if (sid) socketRef.current.emit('join_society', sid);
+    });
 socketRef.current.on('complaint_updated', (updated) => {
   setComplaints(prev => prev.map(c => c._id === updated._id ? updated : c));
   if (selectedComplaintRef.current?._id === updated._id) {

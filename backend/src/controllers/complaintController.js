@@ -6,7 +6,7 @@ const User = require('../models/User');
 exports.getComplaints = async (req, res) => {
   try {
     //const query = req.user.role === 'resident' ? { postedBy: req.user._id } : {}; --to conceal the complaint user
-    const complaints = await Complaint.find()
+    const complaints = await Complaint.find({ societyId: req.societyId })
       .populate('postedBy', 'name houseNo initials avatarColor')
       .populate('resolvedBy', 'name houseNo initials avatarColor role')
       .populate('comments.user', 'name houseNo initials avatarColor role')
@@ -22,12 +22,13 @@ exports.createComplaint = async (req, res) => {
   try {
     const { title, description, category } = req.body;
     const complaint = await Complaint.create({
+      societyId: req.societyId,
       title, description, category,
       postedBy: req.user._id,
     });
     await complaint.populate('postedBy', 'name houseNo initials avatarColor');
 
-    req.io.emit('new_complaint', complaint);
+    req.emitToSociety('new_complaint', complaint);
     res.status(201).json({ success: true, complaint });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -47,8 +48,8 @@ exports.updateStatus = async (req, res) => {
       }),
     };
 
-    const complaint = await Complaint.findByIdAndUpdate(
-      req.params.id,
+    const complaint = await Complaint.findOneAndUpdate(
+      { _id: req.params.id, societyId: req.societyId },
       updateData,
       { new: true }
     )
@@ -58,18 +59,21 @@ exports.updateStatus = async (req, res) => {
 
     if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
 
-    req.io.emit('complaint_updated', complaint);
+    req.emitToSociety('complaint_updated', complaint);
     res.json({ success: true, complaint });
 
-    const complaintOwner = await User.findById(complaint.postedBy._id);
-if (complaintOwner?.pushToken) {
-  await sendPushNotification(
-    complaintOwner.pushToken,
-    'Complaint Status Updated',
-    `Your complaint "${complaint.title}" is now ${status}`,
-    { screen: 'complaints', complaintId: complaint._id.toString() }
-  );
-}
+    const complaintOwner = await User.findOne({
+      _id: complaint.postedBy._id,
+      societyId: req.societyId,
+    });
+    if (complaintOwner?.pushToken) {
+      await sendPushNotification(
+        complaintOwner.pushToken,
+        'Complaint Status Updated',
+        `Your complaint "${complaint.title}" is now ${status}`,
+        { screen: 'complaints', complaintId: complaint._id.toString() }
+      );
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -79,7 +83,7 @@ if (complaintOwner?.pushToken) {
 exports.addComment = async (req, res) => {
   try {
     const { text } = req.body;
-    const complaint = await Complaint.findById(req.params.id);
+    const complaint = await Complaint.findOne({ _id: req.params.id, societyId: req.societyId });
     if (!complaint) return res.status(404).json({ message: 'Complaint not found' });
 
     complaint.comments.push({ user: req.user._id, text });
@@ -89,7 +93,7 @@ exports.addComment = async (req, res) => {
     await complaint.populate('resolvedBy', 'name houseNo initials avatarColor role');
     await complaint.populate('comments.user', 'name houseNo initials avatarColor role');
 
-    req.io.emit('complaint_updated', complaint);
+    req.emitToSociety('complaint_updated', complaint);
     res.json({ success: true, complaint });
   } catch (error) {
     res.status(500).json({ message: error.message });

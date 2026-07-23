@@ -6,7 +6,7 @@ const User = require('../models/User');
 exports.getMessages = async (req, res) => {
   try {
     const roomId = [req.user._id.toString(), req.params.userId].sort().join('_');
-    const messages = await Message.find({ roomId })
+    const messages = await Message.find({ societyId: req.societyId, roomId })
       .populate('sender', 'name initials avatarColor')
       .populate('receiver', 'name initials avatarColor')
       .sort({ createdAt: 1 });
@@ -20,9 +20,17 @@ exports.getMessages = async (req, res) => {
 exports.sendMessage = async (req, res) => {
   try {
     const { text } = req.body;
+
+    // Residents can only message someone in their own society.
+    const receiver = await User.findOne({ _id: req.params.userId, societyId: req.societyId });
+    if (!receiver) {
+      return res.status(404).json({ message: 'Recipient not found in your society' });
+    }
+
     const roomId = [req.user._id.toString(), req.params.userId].sort().join('_');
 
     const message = await Message.create({
+      societyId: req.societyId,
       roomId, text,
       sender: req.user._id,
       receiver: req.params.userId,
@@ -31,11 +39,11 @@ exports.sendMessage = async (req, res) => {
     await message.populate('sender', 'name initials avatarColor');
     await message.populate('receiver', 'name initials avatarColor');
 
+    // Chat rooms are already keyed to the two participants' ids, so this is
+    // inherently private; no extra society scoping needed on the room name.
     req.io.to(roomId).emit('receive_message', message);
 
-    // Send push notification to receiver
-    const receiver = await User.findById(req.params.userId);
-    if (receiver?.pushToken) {
+    if (receiver.pushToken) {
       await sendPushNotification(
         receiver.pushToken,
         `New message from ${req.user.name}`,
@@ -54,14 +62,14 @@ exports.markAsRead = async (req, res) => {
   try {
     const roomId = [req.user._id.toString(), req.params.userId].sort().join('_');
     await Message.updateMany(
-      { roomId, receiver: req.user._id, isRead: false },
+      { societyId: req.societyId, roomId, receiver: req.user._id, isRead: false },
       { isRead: true }
     );
     res.json({ success: true, message: 'Messages marked as read' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-}; 
+};
 
 // @route GET /api/chat/conversations
 exports.getConversations = async (req, res) => {
@@ -70,6 +78,7 @@ exports.getConversations = async (req, res) => {
 
     // Find all messages where user is sender or receiver
     const messages = await Message.find({
+      societyId: req.societyId,
       $or: [{ sender: userId }, { receiver: userId }]
     })
       .populate('sender', 'name initials avatarColor houseNo designation isServiceProvider phone')

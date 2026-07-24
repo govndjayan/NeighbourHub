@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "599252898646",
+    "project_id": "eaze-apt",
+    "storage_bucket": "eaze-apt.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:599252898646:android:220c437dd76e8e6392fcf7",
+        "android_client_info": {
+          "package_name": "com.eazeapt.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvk9iqkOiPJ_Ug14GAn_I-0IylJ2T5glY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { lookupSociety } from '../../services/api';
 
@@ -52,12 +52,14 @@ const InputField = ({
 export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useAuth();
+  // Pre-filled invite code when arriving from "Set up your society".
+  const { code } = useLocalSearchParams();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [focusedInput, setFocusedInput] = useState(null);
 
   // Step 1 — which society this resident is joining
-  const [inviteCode, setInviteCode] = useState('');
+  const [inviteCode, setInviteCode] = useState(code ? String(code).toUpperCase() : '');
   const [society, setSociety] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
 

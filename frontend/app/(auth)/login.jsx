@@ -209,8 +209,17 @@ export default function LoginScreen() {
                 <Text style={styles.registerBtnText}>Create an account</Text>
               </TouchableOpacity>
 
+              {/* Society-admin entry point: register a brand-new community */}
+              <TouchableOpacity
+                style={styles.setupSocietyBtn}
+                onPress={() => router.push('/(auth)/create-society')}
+              >
+                <Ionicons name="business-outline" size={15} color="rgba(108,99,255,0.9)" />
+                <Text style={styles.setupSocietyText}>New society? Set it up</Text>
+              </TouchableOpacity>
+
               <Text style={styles.hint}>
-                New residents need to register first.{'\n'}
+                New residents need an invite code from their society.{'\n'}
                 Contact your secretary if you need help.
               </Text>
 
@@ -310,6 +319,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(108,99,255,0.08)',
   },
   registerBtnText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '600' },
+  setupSocietyBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 12, marginTop: 10,
+  },
+  setupSocietyText: { color: 'rgba(108,99,255,0.9)', fontSize: 13, fontWeight: '600' },
   hint: {
     fontSize: 10, color: 'rgba(255,255,255,0.2)',
     textAlign: 'center', marginTop: 10, lineHeight: 15,

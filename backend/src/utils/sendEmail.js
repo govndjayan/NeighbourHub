@@ -26,7 +26,7 @@ const sendEmail = async ({ to, subject, text, html }) => {
     throw new Error('Email service is not configured. Please set SMTP_* environment variables.');
   }
   const transporter = buildTransporter();
-  const from = process.env.SMTP_FROM || `NeighbourHub <${process.env.SMTP_USER}>`;
+  const from = process.env.SMTP_FROM || `Eaze Apt <${process.env.SMTP_USER}>`;
   await transporter.sendMail({ from, to, subject, text, html });
 };
 
@@ -36,11 +36,11 @@ const sendEmail = async ({ to, subject, text, html }) => {
 const otpEmailTemplate = (name, otp) => {
   const safeName = name || 'Neighbour';
   return {
-    subject: 'Your NeighbourHub password reset code',
-    text: `Hi ${safeName},\n\nYour password reset code is ${otp}. It expires in 10 minutes.\n\nIf you didn't request this, you can safely ignore this email.\n\n— Hill Park Avenue`,
+    subject: 'Your Eaze Apt password reset code',
+    text: `Hi ${safeName},\n\nYour password reset code is ${otp}. It expires in 10 minutes.\n\nIf you didn't request this, you can safely ignore this email.\n\n— Eaze Apt`,
     html: `
       <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#07231f;border-radius:16px;color:#e6fffa;">
-        <h2 style="margin:0 0 4px;color:#fff;">Hill Park Avenue</h2>
+        <h2 style="margin:0 0 4px;color:#fff;">Eaze Apt</h2>
         <p style="margin:0 0 24px;color:#5eead4;font-size:12px;letter-spacing:1px;">YOUR COMMUNITY · CONNECTED</p>
         <p style="color:#cbd5e1;">Hi ${safeName},</p>
         <p style="color:#cbd5e1;">Use the code below to reset your password. It expires in <strong>10 minutes</strong>.</p>

@@ -63,7 +63,7 @@ app.use('/api/chat', chatRoutes);
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ message: 'NeighbourHub API is running 🚀' });
+  res.json({ message: 'Eaze Apt API is running 🚀' });
 });
 
 // Error handler

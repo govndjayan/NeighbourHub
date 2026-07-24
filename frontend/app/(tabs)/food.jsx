@@ -18,10 +18,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useAuth } from '../../context/AuthContext';
+import { useSociety } from '../../context/SocietyContext';
 
 const { width } = Dimensions.get('window');
 const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Produce', 'Item'];
-const BLOCKS = ['All', 'Lands Down Park', 'Hill Top Garden', 'Aakkulam Avenue'];
 const SORT_OPTIONS = [
   { key: 'newest', label: 'Newest' },
   { key: 'availability', label: 'Availability' },
@@ -226,6 +226,7 @@ const SkeletonCard = () => {
 
 export default function FoodScreen() {
   const { user } = useAuth();
+  const { blockOptions: BLOCKS } = useSociety();
   const insets = useSafeAreaInsets();
   const [image, setImage] = useState(null);
   const [sharePosts, setSharePosts] = useState([]);
@@ -655,7 +656,7 @@ const handleDeletePost = (post) => {
     if (current.canAskAgain === false) {
       Alert.alert(
         `${label} access is off`,
-        `Enable ${label} access for NeighbourHub in Settings to use this option.`,
+        `Enable ${label} access for Eaze Apt in Settings to use this option.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Settings', onPress: () => Linking.openSettings() },

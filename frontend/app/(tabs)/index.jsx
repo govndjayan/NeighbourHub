@@ -5,6 +5,7 @@ import {
   Alert, ActivityIndicator, RefreshControl, Animated, Dimensions, AppState
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useSociety } from '../../context/SocietyContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -42,6 +43,7 @@ const [annSubmitting, setAnnSubmitting] = useState(false);
 const [editingAnnouncement, setEditingAnnouncement] = useState(null);
 
   const { user, logout } = useAuth();
+  const { society } = useSociety();
   const router = useRouter();
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -295,7 +297,7 @@ const statsCards = [
               <View>
                 <Text style={styles.greeting}>Welcome</Text>
                 <Text style={styles.userName}>{user?.name|| 'Resident'}</Text>
-                <Text style={styles.community}>Hill Park Avenue</Text>
+                <Text style={styles.community}>{society?.name || 'Your community'}</Text>
               </View>
               <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
                 <Ionicons name="log-out-outline" size={20} color="rgba(255,255,255,0.8)" />

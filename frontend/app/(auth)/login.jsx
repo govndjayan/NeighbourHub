@@ -111,7 +111,10 @@ export default function LoginScreen() {
                     <Ionicons name="home" size={26} color="#fff" />
                   </View>
                 </LinearGradient>
-                <Text style={styles.appName}>Hill Park Avenue</Text>
+                {/* Pre-auth screen — the app doesn't know which society this
+                    is yet, so this is platform branding, not a community
+                    name. Each user's own community shows after they sign in. */}
+                <Text style={styles.appName}>Eaze Apt</Text>
                 <Text style={styles.appSub}>YOUR COMMUNITY · CONNECTED</Text>
               </Animated.View>
             </View>

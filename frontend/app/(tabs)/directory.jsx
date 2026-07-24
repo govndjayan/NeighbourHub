@@ -9,9 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getAllUsers, updateUserRole } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useSociety } from '../../context/SocietyContext';
 import SwipeWrapper from '../../components/SwipeWrapper';
-
-const BLOCKS = ['All', 'Lands Down Park', 'Hill Top Garden', 'Aakkulam Avenue'];
 
 const roleConfig = {
   president: { label: 'President', color: '#ff4757', bg: 'rgba(255,71,87,0.15)', border: 'rgba(255,71,87,0.25)', icon: 'star' },
@@ -22,6 +21,7 @@ const roleConfig = {
 
 export default function DirectoryScreen() {
   const { user } = useAuth();
+  const { blockOptions: BLOCKS } = useSociety();
   const [residents, setResidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

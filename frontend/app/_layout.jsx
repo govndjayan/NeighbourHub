@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { BadgeProvider } from '../context/BadgeContext';
+import { SocietyProvider } from '../context/SocietyContext';
 import * as Updates from 'expo-updates';
 
 function RootLayoutNav() {
@@ -84,9 +85,11 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <AuthProvider>
-        <BadgeProvider>
-          <RootLayoutNav />
-        </BadgeProvider>
+        <SocietyProvider>
+          <BadgeProvider>
+            <RootLayoutNav />
+          </BadgeProvider>
+        </SocietyProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );
